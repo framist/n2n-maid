@@ -15,16 +15,16 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [theme, setTheme] = useState<string>('system');
 
-  // 加载配置
+  // 读取主人的指示
   useEffect(() => {
     loadConfig();
     
-    // 定期检查状态
+    // 定期检查恩兔的工作状态
     const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 
-  // 应用主题
+  // 调整外观
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
@@ -35,7 +35,7 @@ function App() {
       setConfig(loadedConfig);
       setTheme(loadedConfig.theme || 'system');
     } catch (error) {
-      console.error('加载配置失败：', error);
+      console.error('读取主人指示失败：', error);
     }
   };
 
@@ -46,7 +46,7 @@ function App() {
       setErrorMessage(response.error);
       setNetworkInfo(response.networkInfo || null);
     } catch (error) {
-      console.error('获取状态失败：', error);
+      console.error('查看恩兔工作状态失败：', error);
     }
   };
 
@@ -66,9 +66,9 @@ function App() {
     setLoading(true);
     try {
       await invoke('connect', { config });
-      console.log('连接成功');
+      console.log('恩兔开始工作啦');
     } catch (error) {
-      console.error('连接失败：', error);
+      console.error('启动工作失败：', error);
       alert(`${t('connect_failed')}: ${error}`);
     } finally {
       setLoading(false);
@@ -78,12 +78,12 @@ function App() {
   const handleDisconnect = async () => {
     setLoading(true);
     try {
-      // 断开可能需要较长时间，这里先切换 UI 状态提示用户等待
+      // 收拾工具可能需要一点时间，先提示主人等待
       setStatus('disconnecting');
       setErrorMessage(null);
       await invoke('disconnect');
     } catch (error) {
-      console.error('断开失败：', error);
+      console.error('让恩兔休息失败：', error);
       alert(`${t('disconnect_failed')}: ${error}`);
     } finally {
       setLoading(false);
@@ -95,7 +95,7 @@ function App() {
     try {
       await invoke('disconnect_force');
     } catch (error) {
-      console.error('强制退出失败：', error);
+      console.error('强制让恩兔停止失败：', error);
       alert(`${t('disconnect_failed')}: ${error}`);
     } finally {
       setLoading(false);

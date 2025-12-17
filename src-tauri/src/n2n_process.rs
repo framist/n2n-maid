@@ -1,5 +1,5 @@
-/// N2N 进程管理模块
-/// 负责启动、停止和监控 N2N edge 进程
+/// 通道打扫工作管理模块
+/// 负责启动、停止和监控恩兔的通道打扫工作（N2N edge 进程）
 use anyhow::{Context, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::io::{BufRead, BufReader};
@@ -14,7 +14,7 @@ use nix::unistd::Pid;
 
 use crate::config::N2NConfig;
 
-/// 网卡信息
+/// 通道详情信息
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct NetworkInfo {
     pub ip: String,
@@ -22,33 +22,33 @@ pub struct NetworkInfo {
     pub mac: String,
 }
 
-/// N2N 连接状态
+/// 恩兔的工作状态
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionStatus {
-    /// 已断开
+    /// 待命中（已断开）
     Disconnected,
-    /// 连接中
+    /// 正在铺设通道（连接中）
     Connecting,
-    /// 断开中（优雅退出）
+    /// 收拾工具中（断开中，优雅退出）
     Disconnecting,
-    /// 已连接（包含网卡信息）
+    /// 通道已就绪（已连接，包含详情）
     Connected(Option<NetworkInfo>),
-    /// 错误
+    /// 遇到麻烦了（错误）
     Error(String),
 }
 
-/// N2N 进程管理器
+/// 恩兔的工作管理器
 pub struct N2NProcess {
-    /// 子进程句柄
+    /// 工作进程句柄
     child: Arc<Mutex<Option<Child>>>,
-    /// 当前状态
+    /// 当前工作状态
     status: Arc<Mutex<ConnectionStatus>>,
-    /// 日志接收通道
+    /// 工作汇报通道
     log_tx: Option<mpsc::UnboundedSender<String>>,
-    /// 自动重连配置
+    /// 自动重连配置（断线后自动重新打扫）
     auto_reconnect: Arc<Mutex<Option<N2NConfig>>>,
 
-    /// 是否由 UI 主动发起停止（用于区分“正常断开”与“异常退出”）
+    /// 是否由主人主动要求停止（用于区分"正常休息"与"意外摔倒"）
     stop_requested: Arc<AtomicBool>,
 }
 
@@ -665,7 +665,7 @@ fn extract_field<'a>(line: &'a str, field: &str) -> Option<&'a str> {
 fn get_default_node_name() -> String {
     #[cfg(target_os = "windows")]
     {
-        "n2n-ui".to_string()
+        "n2n-maid".to_string()
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -673,9 +673,9 @@ fn get_default_node_name() -> String {
         match nix::unistd::gethostname() {
             Ok(name) => {
                 let s = name.to_string_lossy().trim().to_string();
-                if s.is_empty() { "n2n-ui".to_string() } else { s }
+                if s.is_empty() { "n2n-maid".to_string() } else { s }
             }
-            Err(_) => "n2n-ui".to_string(),
+            Err(_) => "n2n-maid".to_string(),
         }
     }
 }

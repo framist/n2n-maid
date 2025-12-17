@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { N2NConfig } from '../types';
 
 /**
- * 设置面板组件
- * 用于配置 N2N 连接参数
+ * 服务准备面板组件
+ * 恩兔用来接收主人的工作指示
  */
 interface SettingsProps {
   config: N2NConfig;

@@ -3,9 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 
 /**
- * 日志查看器组件 - 终端风格
- * 固定显示在窗口底部，类似 VSCode/Dolphin 的终端面板
- * 支持 ANSI 颜色输出
+ * 工作日志查看器组件 - 稿纸风格
+ * 恩兔的工作汇报区域，固定在窗口底部
+ * 支持彩色输出，方便主人查看
  */
 const LogViewer: React.FC = () => {
   const { t } = useTranslation();
@@ -14,7 +14,7 @@ const LogViewer: React.FC = () => {
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // 定期拉取日志
+    // 定期接收恩兔的工作汇报
     const interval = setInterval(async () => {
       try {
         const newLogs = await invoke<string[]>('get_logs');
@@ -22,14 +22,14 @@ const LogViewer: React.FC = () => {
           setLogs(prev => [...prev, ...newLogs]);
         }
       } catch (error) {
-        console.error('获取日志失败：', error);
+        console.error('接收工作汇报失败：', error);
       }
     }, 500);
 
     return () => clearInterval(interval);
   }, []);
 
-  // 自动滚动到底部
+  // 自动滚动到最新的汇报
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
@@ -39,8 +39,8 @@ const LogViewer: React.FC = () => {
   };
 
   /**
-   * 渲染带颜色的日志行
-   * 简化的 ANSI 颜色支持：[OUT] = 绿色，[ERR] = 红色，[WARN] = 黄色，[INFO] = 蓝色
+   * 渲染带颜色的汇报行
+   * [OUT] = 正常，[ERR] = 出错了，[WARN] = 需要注意，[INFO] = 进展信息
    */
   const renderLogLine = (log: string) => {
     if (log.startsWith('[ERR]')) {

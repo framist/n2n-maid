@@ -1881,7 +1881,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "n2n-ui"
+name = "n2n-maid"
 version = "0.1.0"
 dependencies = [
  "anyhow",

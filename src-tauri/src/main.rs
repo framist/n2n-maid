@@ -11,31 +11,31 @@ use std::sync::{Arc, Mutex};
 use tauri::State;
 use tokio::sync::mpsc;
 
-/// 应用程序状态
+/// 恩兔酱的工作台状态
 struct AppState {
-    /// N2N 进程管理器
+    /// N2N 进程管理器（恩兔的工作记录）
     process: Arc<Mutex<N2NProcess>>,
-    /// 配置管理器
+    /// 配置管理器（主人的指示簿）
     config_manager: Arc<Mutex<ConfigManager>>,
-    /// 日志接收器
+    /// 日志接收器（工作汇报通道）
     log_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
 
-/// 获取当前配置
+/// 获取主人的指示（读取配置）
 #[tauri::command]
 async fn get_config(state: State<'_, AppState>) -> Result<N2NConfig, String> {
     let manager = state.config_manager.lock().unwrap();
     manager.load().map_err(|e| e.to_string())
 }
 
-/// 保存配置
+/// 记下主人的指示（保存配置）
 #[tauri::command]
 async fn save_config(config: N2NConfig, state: State<'_, AppState>) -> Result<(), String> {
     let manager = state.config_manager.lock().unwrap();
     manager.save(&config).map_err(|e| e.to_string())
 }
 
-/// 启动 N2N 连接
+/// 开始打扫通道（启动 N2N 连接）
 #[tauri::command]
 async fn connect(config: N2NConfig, state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
     let process = state.process.lock().unwrap();
@@ -55,7 +55,7 @@ async fn connect(config: N2NConfig, state: State<'_, AppState>, app: tauri::AppH
     Ok(())
 }
 
-/// 断开 N2N 连接
+/// 收拾工具休息（断开 N2N 连接）
 #[tauri::command]
 async fn disconnect(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
     let process = state.process.lock().unwrap();
@@ -68,7 +68,7 @@ async fn disconnect(state: State<'_, AppState>, app: tauri::AppHandle) -> Result
     Ok(())
 }
 
-/// 强制断开 N2N 连接（用于优雅退出卡住时）
+/// 立即停止工作（强制断开，用于温柔关闭卡住时）
 #[tauri::command]
 async fn disconnect_force(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
     let process = state.process.lock().unwrap();
@@ -81,7 +81,7 @@ async fn disconnect_force(state: State<'_, AppState>, app: tauri::AppHandle) -> 
     Ok(())
 }
 
-/// 获取连接状态
+/// 查看工作状态（获取连接状态）
 #[tauri::command]
 async fn get_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let process = state.process.lock().unwrap();
@@ -118,7 +118,7 @@ async fn get_status(state: State<'_, AppState>) -> Result<serde_json::Value, Str
     Ok(result)
 }
 
-/// 获取日志
+/// 获取工作汇报（读取日志）
 #[tauri::command]
 async fn get_logs(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let mut rx_guard = state.log_rx.lock().unwrap();
@@ -134,17 +134,17 @@ async fn get_logs(state: State<'_, AppState>) -> Result<Vec<String>, String> {
 }
 
 fn main() {
-    // 初始化日志
+    // 初始化日志系统
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // 创建日志通道
+    // 创建工作汇报通道
     let (log_tx, log_rx) = mpsc::unbounded_channel();
     
-    // 创建 N2N 进程管理器
+    // 唤醒恩兔酱（创建 N2N 进程管理器）
     let mut process = N2NProcess::new();
     process.set_log_sender(log_tx);
     
-    // 创建配置管理器
+    // 准备指示簿（创建配置管理器）
     let config_manager = ConfigManager::new().expect("无法创建配置管理器");
 
     tauri::Builder::default()
@@ -152,7 +152,7 @@ fn main() {
             // 创建系统托盘
             tray::create_tray(&app.handle())?;
             
-            log::info!("N2N UI 启动成功");
+            log::info!("恩兔酱准备就绪，随时为主人服务！");
             Ok(())
         })
         .manage(AppState {
