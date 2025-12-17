@@ -9,7 +9,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(unix)]
 use nix::sys::signal::{kill, Signal};
+#[cfg(unix)]
 use nix::unistd::Pid;
 
 use crate::config::N2NConfig;
@@ -83,7 +88,7 @@ impl N2NProcess {
         *self.status.lock().unwrap() = ConnectionStatus::Connecting;
 
         // 确定 edge 可执行文件路径
-        let mut edge_path = config
+        let edge_path = config
             .edge_path
             .as_ref()
             .map(|p| p.to_string())
@@ -92,7 +97,8 @@ impl N2NProcess {
         // Linux 下 edge 通常需要 root/capabilities（创建 TAP、切换权限等）
         // 这里优先尝试为 edge 二进制授予 capabilities，避免用 pkexec 包裹运行导致 stop() 无法精确控制 edge PID
         #[cfg(target_os = "linux")]
-        {
+        let edge_path = {
+            let mut edge_path = edge_path;
             if !nix::unistd::Uid::effective().is_root() {
                 // 解析为绝对路径，避免 setcap/实际启动的二进制不一致
                 edge_path = resolve_edge_path_for_caps(&edge_path)?;
@@ -105,7 +111,8 @@ impl N2NProcess {
                     )
                 })?;
             }
-        }
+            edge_path
+        };
 
         // 校验 supernode 格式（必须是 host:port）
         if !config.supernode.contains(':') {
@@ -113,14 +120,23 @@ impl N2NProcess {
         }
 
         // 构建命令参数
-        // -f: 前台运行（不 fork 到后台，便于监控）
         // -c: 社区名称
         // -l: supernode 地址（host:port）
+        //
+        // 备注：`-f`（前台运行）在部分 Windows 版本的 edge 中并不存在，会触发
+        // `WARNING: unknown option -f`，所以 Windows 下不再传入该参数。
         let mut args = vec![
-            "-f".to_string(),
-            "-c".to_string(), config.community.clone(),
-            "-l".to_string(), config.supernode.clone(),
+            "-c".to_string(),
+            config.community.clone(),
+            "-l".to_string(),
+            config.supernode.clone(),
         ];
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            // -f: 前台运行（不 fork 到后台，便于监控）
+            args.insert(0, "-f".to_string());
+        }
 
         // -I: edge 描述/用户名（注意：不是 -n，-n 是路由配置）
         // 需求：配置中可留空，默认使用主机名
@@ -175,6 +191,13 @@ impl N2NProcess {
         cmd.args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        // Windows 下别让 edge 额外弹出黑框框（恩兔会把工具箱悄悄拿出来干活）
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
 
         // 在 Linux 上可能需要提权
         #[cfg(target_os = "linux")]
@@ -453,9 +476,30 @@ impl N2NProcess {
                 }
             }
             
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(all(unix, not(target_os = "linux")))]
             {
                 let _ = kill(Pid::from_raw(pid), Signal::SIGINT);
+            }
+
+            #[cfg(windows)]
+            {
+                // Windows 没有 SIGINT，恩兔就改用系统自带的 taskkill 来“轻轻拍一下肩膀”
+                // 备注：不加 /F 代表尽量温柔；如果 edge 不听话，主人还可以用“强制断开”
+                let status = Command::new("taskkill")
+                    .arg("/PID")
+                    .arg(pid.to_string())
+                    .status();
+                match status {
+                    Ok(s) if s.success() => {
+                        log::info!("Windows taskkill 已发送停止请求（PID: {}）", pid);
+                    }
+                    Ok(s) => {
+                        log::warn!("Windows taskkill 返回非零退出码：{:?}", s.code());
+                    }
+                    Err(e) => {
+                        log::error!("Windows taskkill 执行失败：{}", e);
+                    }
+                }
             }
             
             Ok(())
@@ -491,9 +535,31 @@ impl N2NProcess {
                 }
             }
             
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(all(unix, not(target_os = "linux")))]
             {
                 let _ = kill(Pid::from_raw(pid), Signal::SIGKILL);
+            }
+
+            #[cfg(windows)]
+            {
+                // Windows 上就用“掸子重击”模式：/T 递归清理子进程，/F 强制结束
+                let status = Command::new("taskkill")
+                    .arg("/T")
+                    .arg("/F")
+                    .arg("/PID")
+                    .arg(pid.to_string())
+                    .status();
+                match status {
+                    Ok(s) if s.success() => {
+                        log::warn!("Windows taskkill 已强制清理（PID: {}）", pid);
+                    }
+                    Ok(s) => {
+                        log::warn!("Windows taskkill（强制）返回非零退出码：{:?}", s.code());
+                    }
+                    Err(e) => {
+                        log::error!("Windows taskkill（强制）执行失败：{}", e);
+                    }
+                }
             }
 
             // 尝试快速回收子进程，避免残留/僵尸

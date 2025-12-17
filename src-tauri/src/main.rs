@@ -1,15 +1,22 @@
-// Prevents additional console window on Windows in release
+// 防止 Windows 发布版额外蹦出黑框框（恩兔想把工作台保持干净整洁）
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
 mod n2n_process;
 mod tray;
 
+// Windows 专属开机体检（TAP/UAC 等“高频痛点”）
+#[cfg(target_os = "windows")]
+mod windows_ready;
+
 use config::{ConfigManager, N2NConfig};
 use n2n_process::{ConnectionStatus, N2NProcess};
 use std::sync::{Arc, Mutex};
+use tauri::Manager;
 use tauri::State;
 use tokio::sync::mpsc;
+#[cfg(target_os = "windows")]
+use tauri::path::BaseDirectory;
 
 /// 恩兔酱的工作台状态
 struct AppState {
@@ -41,6 +48,27 @@ async fn connect(config: N2NConfig, state: State<'_, AppState>, app: tauri::AppH
     let process = state.process.lock().unwrap();
     
     // 先保存配置
+    let mut config = config;
+
+    // Windows 打包模式下：优先使用资源目录里的 edge.exe（避免工作目录变化导致找不到 bin/edge.exe）
+    #[cfg(target_os = "windows")]
+    {
+        if config.edge_path.is_none() {
+            if let Ok(p) = app.path().resolve("edge.exe", BaseDirectory::Resource) {
+                if p.exists() {
+                    config.edge_path = Some(p.to_string_lossy().to_string());
+                }
+            }
+            if config.edge_path.is_none() {
+                if let Ok(p) = app.path().resolve("bin/edge.exe", BaseDirectory::Resource) {
+                    if p.exists() {
+                        config.edge_path = Some(p.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
     let manager = state.config_manager.lock().unwrap();
     manager.save(&config).map_err(|e| e.to_string())?;
     drop(manager);
@@ -149,6 +177,14 @@ fn main() {
 
     tauri::Builder::default()
         .setup(|app| {
+            // Windows 开机体检：缺 TAP 就先提示主人安装，避免后面连接时才摔跤
+            #[cfg(target_os = "windows")]
+            {
+                if let Err(e) = windows_ready::ready_to_run(&app.handle()) {
+                    log::error!("Windows Ready-to-Run 检查失败：{}", e);
+                }
+            }
+
             // 创建系统托盘
             tray::create_tray(&app.handle())?;
             
@@ -172,4 +208,3 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
 }
-

@@ -42,7 +42,7 @@
     "resources": ["../bin/*"],
     "externalBin": [],
     "copyright": "",
-    "category": "Network",
+    "category": "Utility",
     "shortDescription": "N2N VPN Client UI",
     "longDescription": "A modern, lightweight GUI for N2N P2P VPN",
     "linux": {

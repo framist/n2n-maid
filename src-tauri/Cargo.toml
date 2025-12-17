@@ -14,7 +14,19 @@ anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
 which = "6.0"
+
+[target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["user", "signal", "hostname"] }
+
+[target.'cfg(windows)'.dependencies]
+# Windows 专属小帮手：翻注册表找 TAP、弹出系统提示框
+winreg = "0.55.0"
+windows-sys = { version = "0.59.0", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+] }
+
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

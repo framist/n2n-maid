@@ -1,18 +1,17 @@
 
-<center>
-[![Rust](https://img.shields.io/badge/Rust-1.92-orange)](https://www.rust-lang.org/)
-[![Tauri](https://img.shields.io/badge/Tauri-2.0-blue)](https://tauri.app/)
-[![React](https://img.shields.io/badge/React-18-blue)](https://react.dev/)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-<!--icon show-->
-<img src="src-tauri/icons/icon-source.png" alt="N2N Maid Icon" width="128" height="128"/>
-</center>
+<div align="center">
+  <img src="src-tauri/icons/icon-source.png" alt="N2N Maid Icon" width="128" height="128"/>
+  <h1>N2N 女仆 · 恩兔酱 | N2N Maid · N-Too</h1>
+  <p>一个开源、简易、可爱的 N2N 图形界面客户端</p>
+  <p><i>🧹主人，您的专属网络通道已打扫完毕！✨</i></p>
+</div>
 
-# N2N 女仆 · 恩兔酱  | N2N Maid · N-Too
-
-一个开源、简易、可爱的 N2N 图形界面客户端
-
-> 🧹✨ 主人，您的专属网络通道已打扫完毕！
+<p align="center">
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1.92-orange" alt="Rust"></a>
+  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/Tauri-2.0-blue" alt="Tauri"></a>
+  <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-18-blue" alt="React"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="License"></a>
+</p>
 
 恩兔酱是一个可爱又实用的 N2N VPN 图形界面客户端，基于 Rust 和 Tauri 2 构建。
 让复杂的网络配置变得简单有趣，就像有位贴心的女仆帮您打理一切~
@@ -109,6 +108,12 @@ n2n-maid/
 - Linux/macOS: `bin/edge`
 
 从 [N2N 官方仓库](https://github.com/ntop/n2n/releases) 下载最新版本。
+
+### Windows 准备事项（TAP + 管理员权限）
+
+- **TAP-Windows 适配器**：Windows 上创建虚拟网卡通常需要 TAP 驱动。恩兔酱启动时会检查是否存在 TAP-Windows（常见为 `tap0901`），缺失则弹窗提示安装/下载。
+- **打包内置安装包**：把 `tap-windows.exe` 或 `tap-windows.msi` 放进 `bin/`，构建安装包时会随应用一起打包，恩兔就能直接帮主人拉起安装程序。
+- **UAC（管理员权限）**：生产构建已设置 `requireAdministrator`，每次启动都会弹 UAC，这是 Windows 上最稳定的“开机就能创建网卡”的方案。
 
 ### 应用图标
 
@@ -220,7 +225,8 @@ ERROR: unable to open tap device
   - [x] 国际化（中英文）
   - [x] 自动重连机制
 - [ ] 阶段三：Windows 深度适配
-  - [ ] TAP 驱动检测
+  - [x] TAP 驱动检测（启动时提示并引导安装）
+  - [x] UAC 权限（requireAdministrator）
   - [ ] 安装包构建（MSI/EXE）
 - [ ] 阶段四：高级功能
   - [ ] Supernode 订阅机制
