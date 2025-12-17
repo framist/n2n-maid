@@ -1,0 +1,15 @@
+# N2N UI 配置文件示例
+# 复制此文件到 ~/.config/n2n-ui/config.toml 使用
+
+supernode = "n2n.example.com:7777"
+community = "my_community"
+username = "my_device"
+encryption_key = ""
+ip_mode = "dhcp"
+mtu = 1290
+
+# 可选配置（留空或删除行表示不使用）
+# static_ip = "10.0.0.2"
+# extra_args = "-v"
+# edge_path = "/usr/local/bin/edge"
+# tap_device = "edge0"

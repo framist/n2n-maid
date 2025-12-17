@@ -1,0 +1,53 @@
+# Rust
+target/
+
+# Node
+node_modules/
+dist/
+.DS_Store
+
+# Tauri
+src-tauri/target/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build outputs
+*.exe
+*.app
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+
+# Config (保留示例文件)
+config.toml
+
+# Binary files (edge 可执行文件)
+bin/edge
+bin/edge.exe
+bin/supernode
+bin/supernode.exe
+
+# Keep README
+!bin/README.md
+!icons/README.md
+
+# Development documentation (not for release)
+AGENTS.md
+CHECKLIST.md
+Plan.md
+SUMMARY.md
+DEVELOPMENT.md
