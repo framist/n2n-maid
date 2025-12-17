@@ -1,16 +1,22 @@
-# N2N 女仆 · 恩兔酱 (N2N Maid · N-Too)
 
-一个开源、现代、可爱的 N2N 图形界面客户端
+<center>
+[![Rust](https://img.shields.io/badge/Rust-1.92-orange)](https://www.rust-lang.org/)
+[![Tauri](https://img.shields.io/badge/Tauri-2.0-blue)](https://tauri.app/)
+[![React](https://img.shields.io/badge/React-18-blue)](https://react.dev/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+<!--icon show-->
+<img src="src-tauri/icons/icon-source.png" alt="N2N Maid Icon" width="128" height="128"/>
+</center>
+
+# N2N 女仆 · 恩兔酱  | N2N Maid · N-Too
+
+一个开源、简易、可爱的 N2N 图形界面客户端
 
 > 🧹✨ 主人，您的专属网络通道已打扫完毕！
 
 恩兔酱是一个可爱又实用的 N2N VPN 图形界面客户端，基于 Rust 和 Tauri 2 构建。
 让复杂的网络配置变得简单有趣，就像有位贴心的女仆帮您打理一切~
 
-[![Rust](https://img.shields.io/badge/Rust-1.92-orange)](https://www.rust-lang.org/)
-[![Tauri](https://img.shields.io/badge/Tauri-2.0-blue)](https://tauri.app/)
-[![React](https://img.shields.io/badge/React-18-blue)](https://react.dev/)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 ## ✨ 恩兔酱的特长
 
