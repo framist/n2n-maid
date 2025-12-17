@@ -4,47 +4,47 @@ import { initReactI18next } from 'react-i18next';
 const resources = {
   zh: {
     translation: {
-      "app_title": "N2N 女仆 · 恩兔酱",
-      "connect": "🧹 开始打扫",
-      "disconnect": "💤 休息一下",
+      "app_title": "N2N Maid · 恩兔酱",
+      "connect": "建立通道",
+      "disconnect": "休息一下",
       "connecting": "正在铺设通道...",
-      "connected": "✨ 主人，通道已打扫完毕！",
-      "disconnected": "😴 恩兔在待命中",
-      "error": "😢 呜呜，出错了",
-      "settings": "📋 服务准备",
-      "logs": "📜 工作日志",
-      "save": "确认",
-      "cancel": "取消",
+      "connected": "扫清障碍，通道已建立完毕！",
+      "disconnected": "恩兔在待命中",
+      "error": "呜呜，出错了",
+      "settings": "服务准备",
+      "logs": "工作日志",
+      "save": "可以",
+      "cancel": "哒咩",
       
       // 配置相关 - 家政预约风格
-      "supernode": "🏢 总部地址",
-      "community": "🔑 工作暗号",
-      "username": "👤 我的工号",
-      "encryption_key": "🔐 保密密语",
+      "supernode": "总部地址",
+      "community": "小组暗号",
+      "username": "我是谁",
+      "encryption_key": "保密密语",
       "ip_mode": "地址分配",
       "static_ip": "指定地址",
       "dhcp": "自动分配",
       "static": "手动指定",
-      "advanced_settings": "🔧 专业设置",
-      "extra_args": "特殊指令",
+      "advanced_settings": "专业设置",
+      "extra_args": "奇妙指令",
       "edge_path": "工具箱路径",
       "tap_device": "设备名称",
       "mtu": "通道宽度",
       
       // 状态信息
-      "virtual_ip": "✉️ 我的地址",
+      "virtual_ip": "我的地址",
       "status": "工作状态",
       
       // 提示信息 - 女仆口吻
-      "save_success": "✅ 主人的指示已记下！",
-      "save_failed": "❌ 哎呀，记录失败了...",
-      "connect_success": "🎉 走廊已经扫干净啦，主人可以随时通行！",
-      "connect_failed": "😭 抱歉主人，通道出故障了",
-      "disconnect_success": "💤 恩兔去休息咯~",
-      "disconnect_failed": "😣 唔...收拾工具时出错了",
+      "save_success": "主人的指示已记下！",
+      "save_failed": "哎呀，记录失败了...",
+      "connect_success": "走廊已经扫干净啦，主人可以随时通行！",
+      "connect_failed": "抱歉主人，通道出故障了",
+      "disconnect_success": "恩兔去休息咯~",
+      "disconnect_failed": "唔...收拾工具时出错了",
       
       // 日志相关
-      "show_logs": "📖 查看日志",
+      "show_logs": "查看日志",
       "hide_logs": "收起日志",
       "clear_logs": "清空记录",
       "clear": "清空",
@@ -52,7 +52,7 @@ const resources = {
       "log_lines": "条记录",
       
       // 网卡信息
-      "network_info": "🌐 通道详情",
+      "network_info": "通道详情",
       "ip": "地址",
       "mask": "子网掩码",
       "mac": "硬件编号",
@@ -70,18 +70,15 @@ const resources = {
       "mtu_desc": "通道的宽度，默认 1290。太小会影响速度，太大可能卡住",
       
       // 错误提示 - 安慰式
-      "error_mac_in_use": "😿 这个硬件编号已经有人用了，可能是其他设备还在工作，或者总部还没注销旧记录",
-      "error_ip_in_use": "😿 这个地址已经有人占了，要不换一个试试？",
-      "error_tap_create_failed": "😰 恩兔没权限创建设备，需要主人帮忙授权呢",
-      "error_supernode_unreachable": "😢 联系不上总部了，是不是地址写错了，或者网络断了？",
-      "error_auth_failed": "🔒 门被锁住了，检查一下暗号和密语对不对吧",
-      "error_permission_denied": "🚫 权限不够呀，Linux 系统需要给工具箱特殊权限才行",
+      "error_mac_in_use": "这个硬件编号已经有人用了，可能是其他设备还在工作，或者总部还没注销旧记录",
+      "error_ip_in_use": "这个地址已经有人占了，要不换一个试试？",
+      "error_tap_create_failed": "恩兔没权限创建设备，需要主人帮忙授权呢",
+      "error_supernode_unreachable": "联系不上总部了，是不是地址写错了，或者网络断了？",
+      "error_auth_failed": "门被锁住了，检查一下暗号和密语对不对吧",
+      "error_permission_denied": "权限不够呀，Linux 系统需要给工具箱特殊权限才行",
       
-      // 主题相关
-      "theme": "外观",
-      "theme_light": "明亮",
-      "theme_dark": "昏暗",
-      "theme_system": "跟随系统",
+      // 快捷配置
+      "quick_config": "当前配置",
 
       // 断开相关
       "disconnecting": "正在收拾工具...",
@@ -92,46 +89,46 @@ const resources = {
   en: {
     translation: {
       "app_title": "N2N Maid · N-Too",
-      "connect": "🧹 Start Cleaning",
-      "disconnect": "💤 Take a Break",
+      "connect": "Build the Path",
+      "disconnect": "Take a Break",
       "connecting": "Preparing your path...",
-      "connected": "✨ Master, your path is ready!",
-      "disconnected": "😴 N-Too is on standby",
-      "error": "😢 Oopsy! Something went wrong",
-      "settings": "📋 Mission Prep",
-      "logs": "📜 Work Report",
+      "connected": "Master, your path is ready!",
+      "disconnected": "N-Too is on standby",
+      "error": "Oopsy! Something went wrong",
+      "settings": "Mission Prep",
+      "logs": "Work Report",
       "save": "Confirm",
       "cancel": "Cancel",
       
       // Configuration - Home service style
-      "supernode": "🏢 Head Office",
-      "community": "🔑 Secret Code",
-      "username": "👤 My ID",
-      "encryption_key": "🔐 Secret Password",
+      "supernode": "Head Office",
+      "community": "Secret Code",
+      "username": "My ID",
+      "encryption_key": "Secret Password",
       "ip_mode": "Address Mode",
       "static_ip": "Fixed Address",
       "dhcp": "Auto Assign",
       "static": "Manual",
-      "advanced_settings": "🔧 Advanced",
+      "advanced_settings": "Advanced",
       "extra_args": "Special Orders",
       "edge_path": "Toolbox Path",
       "tap_device": "Device Name",
       "mtu": "Tunnel Width",
       
       // Status
-      "virtual_ip": "✉️ My Address",
+      "virtual_ip": "My Address",
       "status": "Work Status",
       
       // Messages - Maid tone
-      "save_success": "✅ Master's orders noted!",
-      "save_failed": "❌ Oops, failed to record...",
-      "connect_success": "🎉 The hallway is sparkling clean, Master can pass anytime!",
-      "connect_failed": "😭 Sorry Master, the tunnel is broken",
-      "disconnect_success": "💤 N-Too is off to rest~",
-      "disconnect_failed": "😣 Um... error packing up tools",
+      "save_success": "Master's orders noted!",
+      "save_failed": "Oops, failed to record...",
+      "connect_success": "The hallway is sparkling clean, Master can pass anytime!",
+      "connect_failed": "Sorry Master, the tunnel is broken",
+      "disconnect_success": "N-Too is off to rest~",
+      "disconnect_failed": "Um... error packing up tools",
       
       // Logs
-      "show_logs": "📖 View Logs",
+      "show_logs": "View Logs",
       "hide_logs": "Hide Logs",
       "clear_logs": "Clear Records",
       "clear": "Clear",
@@ -139,7 +136,7 @@ const resources = {
       "log_lines": "records",
       
       // Network info
-      "network_info": "🌐 Tunnel Details",
+      "network_info": "Tunnel Details",
       "ip": "Address",
       "mask": "Subnet Mask",
       "mac": "Hardware ID",
@@ -157,18 +154,15 @@ const resources = {
       "mtu_desc": "Tunnel width, default 1290. Too small affects speed, too large might get stuck",
       
       // Error messages - Comforting style
-      "error_mac_in_use": "😿 This hardware ID is already taken, maybe another device is using it or head office hasn't cleared the old record",
-      "error_ip_in_use": "😿 This address is occupied, shall we try another one?",
-      "error_tap_create_failed": "😰 N-Too doesn't have permission to create device, Master needs to grant authorization",
-      "error_supernode_unreachable": "😢 Can't reach head office, is the address wrong or network disconnected?",
-      "error_auth_failed": "🔒 The door is locked, please check if the code and password are correct",
-      "error_permission_denied": "🚫 Not enough permission, Linux systems need special capabilities for the toolbox",
+      "error_mac_in_use": "This hardware ID is already taken, maybe another device is using it or head office hasn't cleared the old record",
+      "error_ip_in_use": "This address is occupied, shall we try another one?",
+      "error_tap_create_failed": "N-Too doesn't have permission to create device, Master needs to grant authorization",
+      "error_supernode_unreachable": "Can't reach head office, is the address wrong or network disconnected?",
+      "error_auth_failed": "The door is locked, please check if the code and password are correct",
+      "error_permission_denied": "Not enough permission, Linux systems need special capabilities for the toolbox",
       
-      // Theme
-      "theme": "Appearance",
-      "theme_light": "Bright",
-      "theme_dark": "Dim",
-      "theme_system": "System",
+      // Quick config
+      "quick_config": "Current Config",
 
       // Disconnect
       "disconnecting": "Packing up tools...",

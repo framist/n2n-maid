@@ -124,7 +124,3 @@ pub fn load(&self) -> Result<N2NConfig> {
 
 - 使用 `bin/edge-mock.sh` 模拟 edge 进程进行 UI 测试
 - Linux 上 N2N 需要 root 权限才能创建 TAP 设备
-
-## 对助理的要求
-
-涉及网络下载时，`export https_proxy=http://127.0.0.1:7890;export http_proxy=http://127.0.0.1:7890;export all_proxy=socks5://127.0.0.1:7890;export TELOXIDE_PROXY=http://127.0.0.1:7890`

@@ -18,7 +18,6 @@ export interface N2NConfig {
   edge_path?: string | null;
   tap_device?: string | null;
   mtu?: number | null;
-  theme?: string | null;
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'disconnecting' | 'connected' | 'error';
@@ -40,5 +39,4 @@ export const defaultConfig: N2NConfig = {
   edge_path: null,
   tap_device: null,
   mtu: 1290,
-  theme: 'system',
 };

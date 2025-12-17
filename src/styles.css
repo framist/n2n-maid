@@ -2,14 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 
+ * 恩兔酱的专属样式表 💖
+ * 温暖粉白色调，给主人最舒适的视觉体验
+ */
+
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* 恩兔酱的配色变量 */
+  --maid-pink: #ffd1dc;
+  --maid-pink-light: #ffe8ed;
+  --maid-pink-deep: #ffb3c1;
+  --maid-white: #fffbfc;
+  --maid-cream: #fff9e6;
+  --accent-blue: #a8d8ea;
+  --accent-purple: #d4b8e0;
+
+  /* 顶栏高度（用于布局避让） */
+  --topbar-height: 56px;
+  
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  /* 恩兔只喜欢明亮温暖的环境 */
+  color-scheme: light;
+  color: #3d3d3d;
+  background-color: var(--maid-white);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -19,29 +37,343 @@
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  /* 整体背景渐变 */
+  background: linear-gradient(135deg, var(--maid-white) 0%, var(--maid-pink-light) 100%);
 }
 
 #root {
   width: 100%;
   height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--maid-white) 0%, var(--maid-pink-light) 100%);
 }
 
-.status-disconnected {
-  @apply bg-gray-500;
+/* 顶栏：全宽、透明、小控件可用高斯模糊 */
+.maid-topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--topbar-height);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: rgba(255, 255, 255, 0.12);
+  /* -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px); */
+  pointer-events: auto;
 }
 
-.status-connecting {
-  @apply bg-yellow-500;
+.maid-topbar-title {
+  color: #3a262f;
+}
+
+/* 全屏背景层，立绘或状态背景图铺满窗口 */
+.maid-bg-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.maid-bg-layer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    rgba(255, 245, 248, 0.01) 0%,
+    rgba(255, 245, 248, 0.01) 35%,
+    rgba(255, 245, 248, 0.5) 60%,
+    rgba(255, 245, 248, 0.5) 100%
+  );
+  pointer-events: none;
+}
+
+.maid-bg-layer img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* 完全铺满窗口 */
+  object-position: center; /* 立绘居中 */
+  transition: transform 8s ease-in-out;
+}
+
+.maid-bg-layer:hover img {
+  transform: scale(1.03); /* 轻微呼吸感 */
+}
+
+/* 右侧浮动操作区：整体右侧 2/3，留白让立绘呼吸 */
+.maid-shell {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  pointer-events: none; /* 避免遮挡背景，但子元素可点击 */
+  padding-top: var(--topbar-height);
+}
+
+.maid-panel {
+  width: 36rem; /* 与 Settings 的 max-w-xl 对齐 */
+  max-width: 36rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  padding: 24px;
+  pointer-events: auto; /* 恢复面板内交互 */
+}
+
+/* 主内容区域 - 内部滚动 */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@media (max-width: 1080px) {
+  .maid-panel {
+    width: 32rem;
+    max-width: 32rem;
+  }
+}
+
+@media (max-width: 920px) {
+  .maid-panel {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* 卡片化面板样式 - 高透明度展示插画 */
+.maid-card {
+  background: rgba(255, 255, 255, 0.35);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 209, 220, 0.25);
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(255, 209, 220, 0.15);
+  transition: all 0.3s ease;
+}
+
+.maid-card:hover {
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow: 0 4px 16px rgba(255, 209, 220, 0.2);
+  transform: translateY(-1px);
+}
+
+/* 头部栏样式（已由 .maid-topbar 取代，保留给其他小区域使用） */
+.maid-header {
+  background: rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(255, 209, 220, 0.18);
+  flex-shrink: 0;
+}
+
+/* 主按钮样式 */
+.maid-button-primary {
+  background: linear-gradient(135deg, var(--maid-pink) 0%, var(--maid-pink-deep) 100%);
+  color: #5a3d4a;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 28px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(255, 179, 193, 0.5);
+}
+
+.maid-button-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 179, 193, 0.6);
+}
+
+.maid-button-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+/* 次要按钮 */
+.maid-button-secondary {
+  background: rgba(255, 255, 255, 0.5);
+  color: #5a3d4a;
+  border: 1px solid var(--maid-pink);
+  border-radius: 12px;
+  padding: 5px 20px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.maid-button-secondary:hover {
+  background: var(--maid-pink-light);
+  border-color: var(--maid-pink-deep);
+}
+
+/* 危险操作按钮 */
+.maid-button-danger {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 12px 28px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.maid-button-danger:hover:not(:disabled) {
+  background: #fecaca;
+  border-color: #fca5a5;
+}
+
+/* 断开连接按钮 */
+.maid-button-disconnect {
+  background: #f3f4f6;
+  color: #4b5563;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  padding: 12px 28px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.maid-button-disconnect:hover:not(:disabled) {
+  background: #e5e7eb;
+}
+
+/* 输入框样式 */
+.maid-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e8c4cc;
+  border-radius: 10px;
+  color: #3d3d3d;
+  transition: all 0.3s ease;
+}
+
+.maid-input:focus {
+  outline: none;
+  border-color: var(--maid-pink-deep);
+  box-shadow: 0 0 0 3px rgba(255, 209, 220, 0.5);
+}
+
+.maid-input::placeholder {
+  color: #b8a0a8;
+}
+
+/* 稿纸风格日志区域 */
+.maid-log-paper {
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+}
+
+/* 日志标题栏 */
+.maid-log-header {
+  background: rgba(255, 249, 230, 0.75);
+  border-top: 1px solid rgba(255, 209, 220, 0.4);
+}
+
+.maid-log-header-expanded {
+  border-bottom: 1px solid #e8dcc8;
+}
+
+/* 日志内容区域 - 稿纸效果 */
+.maid-log-content {
+  background: 
+    linear-gradient(to bottom, 
+      rgba(255, 249, 230, 0.85) 0px,
+      rgba(255, 249, 230, 0.85) 23px,
+      rgba(232, 220, 200, 0.6) 24px
+    );
+  background-size: 100% 24px;
+}
+
+.maid-log-paper .log-line {
+  line-height: 24px;
+  padding-left: 8px;
+}
+
+/* 状态指示器样式 */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .status-connected {
-  @apply bg-green-500;
+  background: rgba(125, 216, 125, 0.2);
+  color: #3a7a3a;
+  border: 1px solid rgba(125, 216, 125, 0.4);
+}
+
+.status-connecting {
+  background: rgba(255, 209, 102, 0.2);
+  color: #8a6d1a;
+  border: 1px solid rgba(255, 209, 102, 0.4);
+}
+
+.status-disconnected {
+  background: rgba(196, 196, 196, 0.2);
+  color: #6a6a6a;
+  border: 1px solid rgba(196, 196, 196, 0.4);
 }
 
 .status-error {
-  @apply bg-red-500;
+  background: rgba(255, 153, 153, 0.2);
+  color: #8a3d3d;
+  border: 1px solid rgba(255, 153, 153, 0.4);
+}
+
+/* 头部栏样式 - 小控件高斯模糊 */
+.maid-header {
+  background: rgba(255, 255, 255, 0.65);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 209, 220, 0.3);
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(255, 209, 220, 0.1);
+}
+
+/* 网络信息卡片 - 半透明展示插画 */
+.network-info-card {
+  background: rgba(168, 216, 234, 0.05);
+  border: 1px solid rgba(168, 216, 234, 0.25);
+  border-radius: 12px;
+  padding: 16px;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* 标题装饰 */
+.maid-title {
+  background: linear-gradient(135deg, #ff9db8 0%, #a8d8ea 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 工具提示气泡 */
+.maid-tooltip {
+  background: white;
+  border: 1px solid var(--maid-pink);
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 15px rgba(255, 209, 220, 0.3);
+  font-size: 0.875rem;
+  color: #5a3d4a;
 }

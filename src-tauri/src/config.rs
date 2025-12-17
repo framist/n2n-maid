@@ -28,8 +28,6 @@ pub struct N2NConfig {
     pub tap_device: Option<String>,
     /// 通道宽度（MTU 设置）
     pub mtu: Option<u16>,
-    /// 外观主题（light/dark/system）
-    pub theme: Option<String>,
 }
 
 impl Default for N2NConfig {
@@ -45,7 +43,6 @@ impl Default for N2NConfig {
             edge_path: None,
             tap_device: None,
             mtu: Some(1290),
-            theme: Some("system".to_string()),
         }
     }
 }
