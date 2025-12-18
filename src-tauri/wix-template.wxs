@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" 
+           Name="N2N Maid · 恩兔酱" 
+           Language="2052" 
+           Version="{{version}}" 
+           Manufacturer="N2N Maid Project" 
+           UpgradeCode="{{upgrade_code}}">
+    
+    <Package InstallerVersion="450" Compressed="yes" InstallScope="perUser" 
+             Description="恩兔酱 - 可爱的 N2N VPN 小管家" 
+             Comments="像家政服务一样简单的 VPN 客户端" />
+
+    <MajorUpgrade DowngradeErrorMessage="已经安装了更新版本的恩兔酱。" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- 自定义安装界面 -->
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+    <WixVariable Id="WixUIDialogBmp" Value="icons/dialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="icons/banner.bmp" />
+    
+    <UI>
+      <UIRef Id="WixUI_InstallDir" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2">1</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2">1</Publish>
+    </UI>
+
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+    <Property Id="ARPCOMMENTS" Value="恩兔会在系统托盘里待命，随时准备帮主人打扫网络通道！" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/framist/n2n-maid" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/framist/n2n-maid/issues" />
+
+    <Icon Id="ProductIcon" SourceFile="icons/icon.ico" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="INSTALLDIR" Name="N2N Maid">
+          {{component_group}}
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="N2N Maid · 恩兔酱"/>
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="ApplicationShortcut" Guid="*">
+        <Shortcut Id="ApplicationStartMenuShortcut"
+                  Name="N2N Maid · 恩兔酱"
+                  Description="可爱的 N2N VPN 小管家"
+                  Target="[INSTALLDIR]n2n-maid.exe"
+                  WorkingDirectory="INSTALLDIR"
+                  Icon="ProductIcon"/>
+        <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall"/>
+        <RegistryValue Root="HKCU" Key="Software\N2NMaid" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="MainApplication" Title="N2N Maid" Level="1" ConfigurableDirectory="INSTALLDIR">
+      {{component_refs}}
+      <ComponentRef Id="ApplicationShortcut" />
+    </Feature>
+
+    <!-- 自定义文本 -->
+    <CustomAction Id="LaunchApplication" 
+                  FileKey="ExecutableFile" 
+                  ExeCommand="" 
+                  Execute="immediate" 
+                  Impersonate="yes" 
+                  Return="asyncNoWait" />
+
+  </Product>
+</Wix>

@@ -37,6 +37,8 @@ use tokio::sync::mpsc;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Globalization::{MultiByteToWideChar, CP_ACP, CP_OEMCP};
 
 #[cfg(unix)]
 use nix::sys::signal::{kill, Signal};
@@ -44,6 +46,27 @@ use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 
 use crate::config::N2NConfig;
+
+/// Management API stop 操作超时（毫秒）
+const MGMT_STOP_TIMEOUT_MS: u64 = 10000;
+/// Management API 查询超时 - socket 读取超时（毫秒）
+const MGMT_QUERY_READ_TIMEOUT_MS: u64 = 200;
+/// Management API 查询超时 - 总等待时间（毫秒）
+const MGMT_QUERY_DEADLINE_MS: u64 = 800;
+/// Management API edges 查询超时 - socket 读取超时（毫秒）
+const MGMT_EDGES_READ_TIMEOUT_MS: u64 = 300;
+/// Management API edges 查询超时 - 总等待时间（毫秒）
+const MGMT_EDGES_DEADLINE_MS: u64 = 1500;
+/// 判断心跳是否有效的最大时间间隔（秒）
+const HEARTBEAT_MAX_INTERVAL_SECS: u64 = 15;
+/// 判断心跳断联的最大时间间隔（秒）- 用于提示"总部不可达"
+const HEARTBEAT_DISCONNECT_THRESHOLD_SECS: u64 = 20;
+/// edge 启动后等待首次 supernode 连接的超时（秒）
+const EDGE_STARTUP_WAIT_SECS: u64 = 10;
+
+/// Windows 下创建子进程时不弹黑框（恩兔把黑框悄悄收起来）
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// 通道详情信息
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -297,7 +320,6 @@ impl N2NProcess {
         // Windows 下别让 edge 额外弹出黑框框（恩兔会把工具箱悄悄拿出来干活）
         #[cfg(target_os = "windows")]
         {
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
 
@@ -728,12 +750,12 @@ impl N2NProcess {
                 let now = unix_now_seconds();
                 if ts.last_super == 0 {
                     // edge 已经开工一会儿但 still 没摸到 supernode，就先给主人一个“总部不可达”的温柔提示
-                    if now.saturating_sub(ts.start_time) > 10 {
+                    if now.saturating_sub(ts.start_time) > EDGE_STARTUP_WAIT_SECS {
                         return Some("error_supernode_unreachable".to_string());
                     }
                 } else {
                     // 已经连上过：如果心跳太久没更新，多半是总部断联了
-                    if now.saturating_sub(ts.last_super) > 20 {
+                    if now.saturating_sub(ts.last_super) > HEARTBEAT_DISCONNECT_THRESHOLD_SECS {
                         return Some("error_supernode_unreachable".to_string());
                     }
                 }
@@ -851,7 +873,7 @@ impl N2NProcess {
             .context("把 stop 纸条递给 edge（Management API）失败")?;
 
         let mut buf = vec![0u8; 65535];
-        let deadline = Instant::now() + Duration::from_millis(10000);
+        let deadline = Instant::now() + Duration::from_millis(MGMT_STOP_TIMEOUT_MS);
         while Instant::now() < deadline {
             let (n, _) = match socket.recv_from(&mut buf) {
                 Ok(v) => v,
@@ -1017,8 +1039,8 @@ impl MgmtState {
     fn is_connected(&self) -> bool {
         let Some(ts) = self.timestamps.as_ref() else { return false };
         let now = unix_now_seconds();
-        let super_ok = ts.last_super != 0 && now.saturating_sub(ts.last_super) <= 15;
-        let p2p_ok = ts.last_p2p != 0 && now.saturating_sub(ts.last_p2p) <= 15;
+        let super_ok = ts.last_super != 0 && now.saturating_sub(ts.last_super) <= HEARTBEAT_MAX_INTERVAL_SECS;
+        let p2p_ok = ts.last_p2p != 0 && now.saturating_sub(ts.last_p2p) <= HEARTBEAT_MAX_INTERVAL_SECS;
         // edge 的 last_super 通常几秒内就会更新；这里给一个宽松阈值，避免短暂抖动把 UI 误判成“断开”
         super_ok || p2p_ok
     }
@@ -1135,23 +1157,21 @@ fn query_mgmt_rows_json_once(method: &str, password: Option<&str>) -> Result<Vec
     let (tag, req) = build_mgmt_request(method, password);
     let socket = UdpSocket::bind(("127.0.0.1", 0)).context("准备 Management API 询问纸条失败")?;
     socket
-        .set_read_timeout(Some(Duration::from_millis(200)))
+        .set_read_timeout(Some(Duration::from_millis(MGMT_QUERY_READ_TIMEOUT_MS)))
         .ok();
     socket
         .send_to(req.as_bytes(), ("127.0.0.1", 5644))
         .context("把询问纸条递给 edge（Management API）失败")?;
 
     let mut buf = vec![0u8; 65535];
-    let deadline = Instant::now() + Duration::from_millis(800);
+    let deadline = Instant::now() + Duration::from_millis(MGMT_QUERY_DEADLINE_MS);
 
     let mut rows: Vec<serde_json::Value> = Vec::new();
 
     while Instant::now() < deadline {
         let (n, _) = match socket.recv_from(&mut buf) {
             Ok(v) => v,
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
-                break;
-            }
+            Err(e) if should_stop_mgmt_read(&e) => break,
             Err(e) => return Err(anyhow::anyhow!("读取 Management API 回信失败：{}", e)),
         };
 
@@ -1197,23 +1217,21 @@ fn query_edges_from_management_api_once(password: Option<&str>) -> Result<Vec<Pe
     let (tag, req) = build_mgmt_request("edges", password);
     let socket = UdpSocket::bind(("127.0.0.1", 0)).context("准备 Management API 询问纸条失败")?;
     socket
-        .set_read_timeout(Some(Duration::from_millis(300)))
+        .set_read_timeout(Some(Duration::from_millis(MGMT_EDGES_READ_TIMEOUT_MS)))
         .ok();
     socket
         .send_to(req.as_bytes(), ("127.0.0.1", 5644))
         .context("把询问纸条递给 edge（Management API）失败")?;
 
     let mut buf = vec![0u8; 65535];
-    let deadline = Instant::now() + Duration::from_millis(1500);
+    let deadline = Instant::now() + Duration::from_millis(MGMT_EDGES_DEADLINE_MS);
 
     let mut rows: Vec<serde_json::Value> = Vec::new();
 
     while Instant::now() < deadline {
         let (n, _) = match socket.recv_from(&mut buf) {
             Ok(v) => v,
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
-                break;
-            }
+            Err(e) if should_stop_mgmt_read(&e) => break,
             Err(e) => return Err(anyhow::anyhow!("读取 Management API 回信失败：{}", e)),
         };
 
@@ -1269,6 +1287,8 @@ fn ping_once(ip: &str, timeout_ms: u64) -> Result<Option<f64>> {
     let mut cmd = Command::new("ping");
     #[cfg(target_os = "windows")]
     {
+        // Windows GUI 程序里频繁调用 ping 会让黑框闪现，恩兔把它悄悄藏起来～
+        cmd.creation_flags(CREATE_NO_WINDOW);
         cmd.args(["-n", "1", "-w", &timeout_ms.to_string(), ip]);
     }
     #[cfg(not(target_os = "windows"))]
@@ -1282,11 +1302,91 @@ fn ping_once(ip: &str, timeout_ms: u64) -> Result<Option<f64>> {
         Err(_) => return Ok(None),
     };
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{stdout}\n{stderr}");
+    #[cfg(target_os = "windows")]
+    let combined = {
+        // Windows 的 ping 输出通常是本地代码页（例如 GBK/CP936），直接按 UTF-8 读会变成乱码，
+        // 进而解析不到“时间=xxms”，导致延迟一直是“-”。
+        let stdout = decode_windows_cmd_output(&output.stdout);
+        let stderr = decode_windows_cmd_output(&output.stderr);
+        format!("{stdout}\n{stderr}")
+    };
+    #[cfg(not(target_os = "windows"))]
+    let combined = {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        format!("{stdout}\n{stderr}")
+    };
 
     Ok(parse_ping_latency_ms(&combined))
+}
+
+#[cfg(target_os = "windows")]
+fn decode_windows_cmd_output(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return String::new();
+    }
+
+    // 少数环境可能会直接输出 UTF-8，先试一下（省得做转换）
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+
+    // Windows 命令行工具更常见的是 OEM/ANSI 代码页（例如中文 Windows 的 CP936）。
+    decode_with_code_page(bytes, CP_OEMCP)
+        .or_else(|| decode_with_code_page(bytes, CP_ACP))
+        .unwrap_or_else(|| String::from_utf8_lossy(bytes).to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn decode_with_code_page(bytes: &[u8], code_page: u32) -> Option<String> {
+    let len = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if len <= 0 {
+        return None;
+    }
+
+    let mut wide = vec![0u16; len as usize];
+    let written = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            wide.as_mut_ptr(),
+            len,
+        )
+    };
+    if written <= 0 {
+        return None;
+    }
+
+    String::from_utf16(&wide[..written as usize]).ok()
+}
+
+fn should_stop_mgmt_read(e: &std::io::Error) -> bool {
+    // WouldBlock/TimedOut：本轮没等到回信，直接结束就好
+    if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut {
+        return true;
+    }
+
+    // Windows 下：UDP 目标端口尚未监听时，可能会抛出 10054（ConnectionReset）。
+    // 这属于“管理口还没准备好”的正常抖动，别拿它吓主人一跳～
+    #[cfg(target_os = "windows")]
+    {
+        if e.kind() == std::io::ErrorKind::ConnectionReset {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn parse_ping_latency_ms(s: &str) -> Option<f64> {

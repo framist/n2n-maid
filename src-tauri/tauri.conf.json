@@ -1,5 +1,5 @@
 {
-  "$schema": "https://tauri.app/schemas/config.schema.json",
+  "$schema": "https://schema.tauri.app/config/2.9.5",
   "productName": "N2N Maid",
   "version": "0.1.0",
   "identifier": "com.n2n.maid",
@@ -41,10 +41,28 @@
     ],
     "resources": ["../bin/*"],
     "externalBin": [],
-    "copyright": "",
+    "publisher": "framist (framist@163.com)",
+    "homepage": "https://github.com/framist/n2n-maid",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
+    "copyright": "Copyright © 2025 framist",
     "category": "Utility",
-    "shortDescription": "N2N VPN Client UI",
-    "longDescription": "A modern, lightweight GUI for N2N P2P VPN",
+    "shortDescription": "N2N Maid · 恩兔酱 - 可爱的 VPN 小管家",
+    "longDescription": "恩兔酱是一个可爱又实用的 N2N VPN 图形界面客户端，像家政服务一样简单！只需告诉恩兔【去哪里】（Supernode）、【暗号是什么】（Community），剩下的交给她打扫通道～",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": true,
+        "languages": ["English", "SimpChinese"],
+        "customLanguageFiles": {
+          "English": "nsis-en.nsh",
+          "SimpChinese": "nsis-zh-CN.nsh"
+        }
+      },
+      "wix": {
+        "language": "zh-CN"
+      }
+    },
     "linux": {
       "deb": {
         "depends": []

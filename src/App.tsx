@@ -279,9 +279,6 @@ function App() {
                 {/* 网络信息（连接后显示） */}
                   {status === 'connected' && (
                     <div className="mt-4 network-info-card">
-                      <p className="mb-2 text-sm font-medium text-gray-700">
-                        {t('network_info')}
-                      </p>
 
                       {/* 本机网卡信息 */}
                       {networkInfo ? (
@@ -319,15 +316,15 @@ function App() {
                           </p>
                         ) : (
                           <div className="overflow-auto max-h-44">
-                            <table className="w-full text-xs font-mono">
+                            <table className="w-full font-mono text-xs">
                               <thead className="text-gray-500">
                                 <tr>
-                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_name')}</th>
-                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_vpn_ip')}</th>
-                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_mode')}</th>
-                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_public_addr')}</th>
-                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_latency')}</th>
-                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_last_seen')}</th>
+                                  <th className="pb-1 pr-2 font-medium text-left">{t('peer_name')}</th>
+                                  <th className="pb-1 pr-2 font-medium text-left">{t('peer_vpn_ip')}</th>
+                                  <th className="pb-1 pr-2 font-medium text-left">{t('peer_mode')}</th>
+                                  <th className="pb-1 pr-2 font-medium text-left">{t('peer_public_addr')}</th>
+                                  <th className="pb-1 pr-2 font-medium text-left">{t('peer_latency')}</th>
+                                  <th className="pb-1 pr-2 font-medium text-left">{t('peer_last_seen')}</th>
                                 </tr>
                               </thead>
                               <tbody className="text-gray-700">
