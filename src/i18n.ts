@@ -91,6 +91,7 @@ const resources = {
       "error_auth_failed": "门被锁住了，检查一下暗号和密语对不对吧",
       "error_permission_denied": "权限不够呀，Linux 系统需要给工具箱特殊权限才行",
       "error_edge_exited": "呜呜…恩兔的工具箱突然停工了（edge 意外退出）。请打开“工作汇报”看看最后一条报错线索。",
+      "error_wsagetlasterror": "Windows 环境下奇怪的错误发生了，但是似乎不影响使用哦",
       
       // 快捷配置
       "quick_config": "当前配置",
@@ -190,7 +191,8 @@ const resources = {
       "error_auth_failed": "The door is locked, please check if the code and password are correct",
       "error_permission_denied": "Not enough permission, Linux systems need special capabilities for the toolbox",
       "error_edge_exited": "Oops… the toolbox stopped unexpectedly (edge exited). Check the “Work Report” for the last error line.",
-      
+      "error_wsagetlasterror": "A strange error occurred in Windows environment, but it seems not to affect usage",
+
       // Quick config
       "quick_config": "Current Config",
 

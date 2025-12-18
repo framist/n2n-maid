@@ -1615,9 +1615,9 @@ fn extract_user_facing_notice(line: &str) -> Option<String> {
         return Some("error_auth_failed".to_string());
     }
 
-    // WSAECONNRESET 10054 连接被重置 UDP 中被忽略（正常）WARNING: WSAGetLastError(): 10047 
-    if l.contains("10054") {
-        return None;
+    // TODO Windows 下相关错误 WSAGetLastError()
+    if l.contains("wsagetlasterror") {
+        return Some("error_wsagetlasterror".to_string());
     }
 
     // 兜底：把明显的 ERROR/failed/Cannot 行直接递给主人（原样显示）
