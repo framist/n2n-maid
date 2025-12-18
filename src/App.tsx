@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
-import { N2NConfig, ConnectionStatus, StatusResponse, NetworkInfo, defaultConfig } from './types';
+import { N2NConfig, ConnectionStatus, StatusResponse, NetworkInfo, PeerNodeInfo, defaultConfig } from './types';
 import LogViewer from './components/LogViewer';
 import Settings from './components/Settings';
 
@@ -31,6 +31,7 @@ function App() {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
+  const [peers, setPeers] = useState<PeerNodeInfo[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -69,6 +70,32 @@ function App() {
       console.error('查看恩兔工作状态失败：', error);
     }
   };
+
+  // 连接成功后：定期获取“同伴点名册”（并展示延迟）
+  useEffect(() => {
+    if (status !== 'connected') {
+      setPeers([]);
+      return;
+    }
+
+    let disposed = false;
+
+    const refreshPeers = async () => {
+      try {
+        const result = await invoke<PeerNodeInfo[]>('get_peers');
+        if (!disposed) setPeers(result || []);
+      } catch (error) {
+        console.error('获取同伴信息失败：', error);
+      }
+    };
+
+    void refreshPeers();
+    const interval = setInterval(refreshPeers, 5000);
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+    };
+  }, [status]);
 
   const handleConnect = async () => {
     setLoading(true);
@@ -218,18 +245,10 @@ function App() {
                     <div className="flex justify-between">
                       <span className="text-gray-500">{t('supernode')}</span>
                       <span className="font-mono text-gray-700">{config.supernode || '-'}</span>
-                    </div>
-                    <div className="flex justify-between">
                       <span className="text-gray-500">{t('community')}</span>
                       <span className="font-mono text-gray-700">{config.community || '-'}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t('ip_mode')}</span>
-                      <span className="text-gray-700">{t(config.ip_mode)}</span>
-                    </div>
                   </div>
-
-
 
                   {/* 错误信息 */}
                   {status === 'error' && errorMessage && (
@@ -258,27 +277,84 @@ function App() {
                 </div>
 
                 {/* 网络信息（连接后显示） */}
-                  {status === 'connected' && networkInfo && (
+                  {status === 'connected' && (
                     <div className="mt-4 network-info-card">
                       <p className="mb-2 text-sm font-medium text-gray-700">
                         {t('network_info')}
                       </p>
-                      <div className="grid grid-cols-3 gap-2 font-mono text-xs">
-                        <div>
-                          <span className="text-gray-500">{t('ip')}:</span>
-                          <br />
-                          <span className="ml-1 text-gray-700">{networkInfo.ip}</span>
+
+                      {/* 本机网卡信息 */}
+                      {networkInfo ? (
+                        <div className="grid grid-cols-3 gap-2 font-mono text-xs">
+                          <div>
+                            <span className="text-gray-500">{t('ip')}:</span>
+                            <br />
+                            <span className="ml-1 text-gray-700">{networkInfo.ip}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">{t('mask')}:</span>
+                            <br />
+                            <span className="ml-1 text-gray-700">{networkInfo.mask}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">{t('mac')}:</span>
+                            <br />
+                            <span className="ml-1 text-gray-700">{networkInfo.mac}</span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-gray-500">{t('mask')}:</span>
-                          <br />
-                          <span className="ml-1 text-gray-700">{networkInfo.mask}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">{t('mac')}:</span>
-                          <br />
-                          <span className="ml-1 text-gray-700">{networkInfo.mac}</span>
-                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">
+                          {t('network_info_waiting')}
+                        </p>
+                      )}
+
+                      {/* 同伴节点 */}
+                      <div className="pt-3 mt-3 border-t border-white/50">
+                        <p className="mb-2 text-sm font-medium text-gray-700">
+                          {t('peer_list')}
+                        </p>
+                        {peers.length === 0 ? (
+                          <p className="text-xs text-gray-500">
+                            {t('peer_list_empty')}
+                          </p>
+                        ) : (
+                          <div className="overflow-auto max-h-44">
+                            <table className="w-full text-xs font-mono">
+                              <thead className="text-gray-500">
+                                <tr>
+                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_name')}</th>
+                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_vpn_ip')}</th>
+                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_mode')}</th>
+                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_public_addr')}</th>
+                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_latency')}</th>
+                                  <th className="text-left font-medium pr-2 pb-1">{t('peer_last_seen')}</th>
+                                </tr>
+                              </thead>
+                              <tbody className="text-gray-700">
+                                {peers.map((p, idx) => {
+                                  const lastSeenAgo =
+                                    p.lastSeen != null
+                                      ? Math.max(0, Math.floor(Date.now() / 1000 - p.lastSeen))
+                                      : null;
+                                  const latencyText =
+                                    p.latencyMs != null ? `${p.latencyMs.toFixed(1)} ms` : t('latency_unknown');
+                                  const lastSeenText =
+                                    lastSeenAgo != null ? `${lastSeenAgo}s` : '-';
+                                  return (
+                                    <tr key={`${p.vpnIp || p.vpnAddr || idx}-${idx}`} className="border-t border-white/40">
+                                      <td className="py-1 pr-2 whitespace-nowrap">{p.name || '-'}</td>
+                                      <td className="py-1 pr-2 whitespace-nowrap">{p.vpnIp || p.vpnAddr || '-'}</td>
+                                      <td className="py-1 pr-2 whitespace-nowrap">{p.mode || '-'}</td>
+                                      <td className="py-1 pr-2 whitespace-nowrap">{p.publicAddr || '-'}</td>
+                                      <td className="py-1 pr-2 whitespace-nowrap">{latencyText}</td>
+                                      <td className="py-1 pr-2 whitespace-nowrap">{lastSeenText}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

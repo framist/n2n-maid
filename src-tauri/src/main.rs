@@ -10,7 +10,7 @@ mod tray;
 mod windows_ready;
 
 use config::{ConfigManager, N2NConfig};
-use n2n_process::{ConnectionStatus, N2NProcess};
+use n2n_process::{ConnectionStatus, N2NProcess, PeerNodeInfo};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -122,8 +122,8 @@ async fn disconnect_force(state: State<'_, AppState>, app: tauri::AppHandle) -> 
 #[tauri::command]
 async fn get_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let process = state.process.lock().unwrap();
-    let status = process.status();
-    let notice = process.last_notice();
+    let status = process.derived_status();
+    let notice = process.derived_notice();
     
     let result = match status {
         ConnectionStatus::Disconnected => serde_json::json!({
@@ -169,6 +169,13 @@ async fn get_logs(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     }
     
     Ok(logs)
+}
+
+/// 获取同伴节点信息（用于“网络信息”卡片展示）
+#[tauri::command]
+async fn get_peers(state: State<'_, AppState>) -> Result<Vec<PeerNodeInfo>, String> {
+    let process = state.process.lock().unwrap();
+    Ok(process.peers_snapshot())
 }
 
 fn main() {
@@ -263,6 +270,7 @@ fn main() {
             disconnect_force,
             get_status,
             get_logs,
+            get_peers,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");

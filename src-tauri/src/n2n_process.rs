@@ -1,12 +1,38 @@
-/// 通道打扫工作管理模块
-/// 负责启动、停止和监控恩兔的通道打扫工作（N2N edge 进程）
+//! 通道打扫工作管理模块（N2N edge 进程管家）
+//!
+//! ## 设计说明：双轨信息源（stdio + UDP Management API）
+//! 恩兔酱会同时“听工作汇报”（stdio：stdout/stderr）和“敲管理口门铃”（UDP Management API，JSON 包）。
+//! 这样做的目标是：在 **不同 edge 版本/不同平台** 下也尽量稳定地判断状态，同时保留足够细的错误线索。
+//!
+//! ### 1) 依赖 stdio 的内容（更细、更贴近现场）
+//! - **错误/提示识别**：`extract_user_facing_notice()` 仍主要从 stdout/stderr 文本中提取（例如 TAP busy、MAC/IP 未释放等）。
+//! - **网卡信息**：`NetworkInfo`（IP/Mask/MAC）来自 stdout 的 `created local tap device ...` 行解析。
+//! - **日志面板**：所有 stdout/stderr 都会原样进入“工作汇报”。
+//! - **兼容性兜底**：部分版本会输出 `edge <<<` 等标志；该逻辑保留，但不再作为 UI 判定“已连接”的唯一依据。
+//!
+//! ### 2) 依赖 UDP Management API 的内容（结构化、更稳）
+//! - **连接成功判定（UI 状态优先）**：后台轮询 `timestamps`，用 `last_super/last_p2p` 的“新鲜度”推断是否已连上。
+//!   - 对外体现为 `derived_status()`：即使 stdout 没出现特定关键字，也能在心跳正常时进入 `Connected(...)`。
+//! - **同伴点名册**：通过 `edges` 获取同伴列表，并缓存后由 `get_peers` 提供给前端展示。
+//! - **优雅断开（Gracefully exit）**：`stop()` 优先发送 `w ... stop`，失败再回退到信号/系统命令兜底。
+//!
+//! ### 3) 提示信息的合成策略（derived_notice）
+//! - **优先**：如果 stdio 已提取到明确错误（`last_notice`），就直接提示主人。
+//! - **其次**：若 stdio 没线索，则用 `timestamps` 推断“总部不可达/心跳断联”等保守提示。
+//! - **最后**：再把 Management API 轮询过程中记录的错误（如 `badauth`）作为调试线索返还。
+//!
+//! ### 4) 认证（management password）
+//! - 如果主人在 `extra_args` 中传入 `--management-password <pw>`，恩兔会自动记下并用于管理口请求。
+//! - 若主人未配置密码，部分操作会按文档默认密码 `n2n` 做一次兜底尝试（避免环境差异导致“看得见但用不了”）。
 use anyhow::{Context, Result};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
+use std::net::UdpSocket;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 #[cfg(target_os = "windows")]
@@ -25,6 +51,30 @@ pub struct NetworkInfo {
     pub ip: String,
     pub mask: String,
     pub mac: String,
+}
+
+/// 同伴节点信息（来自 Management API 的 edges 列表）
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerNodeInfo {
+    /// 同伴的昵称（edge 的 -I / desc）
+    pub name: Option<String>,
+    /// 同伴的 VPN 地址（含 CIDR，例如 10.0.0.2/24）
+    pub vpn_addr: Option<String>,
+    /// 仅 IP 部分（例如 10.0.0.2）
+    pub vpn_ip: Option<String>,
+    /// 同伴的公网 Socket 地址（例如 1.2.3.4:56789）
+    pub public_addr: Option<String>,
+    /// N2N 通道模式（例如 p2p / pSp 等）
+    pub mode: Option<String>,
+    /// edge 最后一次“看见”该同伴的时间戳（Unix 秒）
+    pub last_seen: Option<u64>,
+    /// 是否为本机（有些版本会返回 local=1 的记录）
+    pub is_local: Option<bool>,
+    /// 最近一次 ping 的延迟（毫秒）
+    pub latency_ms: Option<f64>,
+    /// 最近一次 ping 的时间戳（Unix 秒）
+    pub last_ping: Option<u64>,
 }
 
 /// 恩兔的工作状态
@@ -57,6 +107,19 @@ pub struct N2NProcess {
 
     /// 是否由主人主动要求停止（用于区分"正常休息"与"意外摔倒"）
     stop_requested: Arc<AtomicBool>,
+
+    /// Management API 密码（如果主人给 edge 设了门禁，恩兔也要带钥匙）
+    mgmt_password: Arc<Mutex<Option<String>>>,
+    /// Management API 状态缓存（避免 get_status 每次都直接去敲 UDP 门铃）
+    mgmt_state: Arc<Mutex<MgmtState>>,
+    /// 是否已启动后台“管理口状态刷新”小工人（避免重复开工）
+    mgmt_worker_started: Arc<AtomicBool>,
+    /// 同伴节点缓存（定期从 Management API 抄写一份“点名册”）
+    peer_cache: Arc<Mutex<Vec<PeerNodeInfo>>>,
+    /// 同伴延迟缓存（key 是 vpn_ip）
+    peer_latency: Arc<Mutex<HashMap<String, (f64, u64)>>>,
+    /// 是否已启动后台“点名 + 测延迟”的小工人（避免重复开工）
+    peer_worker_started: Arc<AtomicBool>,
 }
 
 impl N2NProcess {
@@ -69,6 +132,12 @@ impl N2NProcess {
             log_tx: None,
             auto_reconnect: Arc::new(Mutex::new(None)),
             stop_requested: Arc::new(AtomicBool::new(false)),
+            mgmt_password: Arc::new(Mutex::new(None)),
+            mgmt_state: Arc::new(Mutex::new(MgmtState::default())),
+            mgmt_worker_started: Arc::new(AtomicBool::new(false)),
+            peer_cache: Arc::new(Mutex::new(Vec::new())),
+            peer_latency: Arc::new(Mutex::new(HashMap::new())),
+            peer_worker_started: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -211,6 +280,12 @@ impl N2NProcess {
             args.extend(extra);
         }
 
+        // 如果主人通过 extra_args 给 edge 设置了管理口令，恩兔也悄悄记下来（用于 Management API 查询）
+        {
+            let pw = extract_management_password(config.extra_args.as_deref());
+            *self.mgmt_password.lock().unwrap() = pw;
+        }
+
         log::info!("启动 N2N edge: {} {:?}", edge_path, args);
 
         // 启动进程
@@ -274,7 +349,7 @@ impl N2NProcess {
                             continue;
                         }
 
-                        // 提取网卡信息：created local tap device IP: 192.168.125.67, Mask: 255.255.255.0, MAC: C6:D2:CB:35:42:85
+                        // 提取网卡信息：created local tap device IP: xxx.xxx.xxx.xxx, Mask: 255.255.255.0, MAC: xx:xx:xx:xx:xx:xx
                         if line.contains("created local tap device") {
                             if let Some(info) = parse_network_info(&line) {
                                 network_info = Some(info);
@@ -294,7 +369,6 @@ impl N2NProcess {
                         if line.contains("edge <<<")
                             || line.contains("[OK] edge <<<")
                         {
-                            log::info!("检测到连接成功标志{}", line);
                             *status.lock().unwrap() = ConnectionStatus::Connected(network_info.clone());
                             // 连接成功就把“提醒便签”撕掉，避免主人继续担心
                             *last_notice.lock().unwrap() = None;
@@ -357,6 +431,14 @@ impl N2NProcess {
         
         // 保存配置以支持自动重连
         *self.auto_reconnect.lock().unwrap() = Some(config.clone());
+
+        // 后台启动“管理口状态刷新”小工人（缓存连接状态/时间戳等）
+        self.start_mgmt_worker_if_needed();
+
+        // 后台启动“同伴点名 + 延迟测量”小工人
+        // - 说明：它只在已连接时工作；断开/退出时会自动收工
+        // - 注意：必须在 child 句柄写入后再启动，否则小工人会误判“没有在工作”而提前收工
+        self.start_peer_worker_if_needed();
         
         // 启动进程监控线程
         let _ = self.start_monitor();
@@ -444,6 +526,19 @@ impl N2NProcess {
         // 立刻切换状态，UI 侧可提示用户等待
         *self.status.lock().unwrap() = ConnectionStatus::Disconnecting;
 
+        // 优先用 Management API 的 stop 来“礼貌请离”，避免 Linux 下还得借 pkexec 才能发信号
+        // - 备注：写操作通常需要认证；如果主人没设置，默认密码是 n2n
+        if self.try_management_stop().is_ok() {
+            // stop 已递出：把缓存收一收，UI 就不会展示旧信息啦
+            self.reset_peer_state();
+            self.reset_mgmt_state();
+            return Ok(());
+        }
+
+        // Management API stop 失败：再走传统 SIGINT 路线兜底
+        self.reset_peer_state();
+        self.reset_mgmt_state();
+
         let child_guard = self.child.lock().unwrap();
         if let Some(child) = child_guard.as_ref() {
             let pid = child.id() as i32;
@@ -518,6 +613,10 @@ impl N2NProcess {
 
         self.stop_requested.store(true, Ordering::SeqCst);
         *self.last_notice.lock().unwrap() = None;
+
+        // 强制停工也要把“点名册/延迟表”收拾干净
+        self.reset_peer_state();
+        self.reset_mgmt_state();
 
         let mut child_guard = self.child.lock().unwrap();
         if let Some(child) = child_guard.as_mut() {
@@ -611,6 +710,88 @@ impl N2NProcess {
         self.last_notice.lock().unwrap().clone()
     }
 
+    /// 尝试给出更“客观”的提示信息：
+    /// - 优先使用从 stdout/stderr 抓到的明确错误
+    /// - 否则用 Management API 的时间戳做保守推断（例如：长时间收不到 supernode 心跳）
+    pub fn derived_notice(&self) -> Option<String> {
+        if let Some(n) = self.last_notice() {
+            return Some(n);
+        }
+
+        let raw = self.status.lock().unwrap().clone();
+        if matches!(
+            raw,
+            ConnectionStatus::Connecting | ConnectionStatus::Connected(_)
+        ) {
+            let st = self.mgmt_state.lock().unwrap().clone();
+            if let Some(ts) = st.timestamps {
+                let now = unix_now_seconds();
+                if ts.last_super == 0 {
+                    // edge 已经开工一会儿但 still 没摸到 supernode，就先给主人一个“总部不可达”的温柔提示
+                    if now.saturating_sub(ts.start_time) > 10 {
+                        return Some("error_supernode_unreachable".to_string());
+                    }
+                } else {
+                    // 已经连上过：如果心跳太久没更新，多半是总部断联了
+                    if now.saturating_sub(ts.last_super) > 20 {
+                        return Some("error_supernode_unreachable".to_string());
+                    }
+                }
+            }
+
+            // 最后兜底：把管理口错误原样返还（主要用于调试）
+            if let Some(e) = st.last_error {
+                return Some(e);
+            }
+        }
+
+        None
+    }
+
+    /// 基于 Management API 缓存推断“是否已连上 supernode”（用于 UI 状态显示）
+    pub fn mgmt_is_connected(&self) -> bool {
+        self.mgmt_state.lock().unwrap().is_connected()
+    }
+
+    /// 基于 Management API 缓存，给出“更像事实”的连接状态（尽量不依赖 stdout 文本匹配）
+    pub fn derived_status(&self) -> ConnectionStatus {
+        let raw = self.status.lock().unwrap().clone();
+        match raw {
+            ConnectionStatus::Disconnecting | ConnectionStatus::Disconnected | ConnectionStatus::Error(_) => raw,
+            ConnectionStatus::Connecting | ConnectionStatus::Connected(_) => {
+                if self.mgmt_is_connected() {
+                    // 保留 stdout 里提取到的网卡信息（如果有），但不把“是否已连接”这件事绑死在 stdout 上
+                    let network_info = match raw {
+                        ConnectionStatus::Connected(info) => info,
+                        _ => None,
+                    };
+                    ConnectionStatus::Connected(network_info)
+                } else {
+                    ConnectionStatus::Connecting
+                }
+            }
+        }
+    }
+
+    /// 把“同伴点名册”递给主人（前端展示用）
+    pub fn peers_snapshot(&self) -> Vec<PeerNodeInfo> {
+        let peers = self.peer_cache.lock().unwrap().clone();
+        let latency = self.peer_latency.lock().unwrap().clone();
+
+        peers
+            .into_iter()
+            .map(|mut p| {
+                if let Some(ref ip) = p.vpn_ip {
+                    if let Some((ms, ts)) = latency.get(ip) {
+                        p.latency_ms = Some(*ms);
+                        p.last_ping = Some(*ts);
+                    }
+                }
+                p
+            })
+            .collect()
+    }
+
     /// 获取默认的 edge 可执行文件路径
     fn get_default_edge_path(&self) -> String {
         #[cfg(target_os = "windows")]
@@ -629,6 +810,511 @@ impl N2NProcess {
             }
         }
     }
+
+    /// 清空同伴相关状态（断开/停止时调用）
+    fn reset_peer_state(&self) {
+        self.peer_cache.lock().unwrap().clear();
+        self.peer_latency.lock().unwrap().clear();
+        // 允许下次连接重新启动后台小工人
+        self.peer_worker_started.store(false, Ordering::SeqCst);
+    }
+
+    /// 清空管理口状态缓存（断开/停止时调用）
+    fn reset_mgmt_state(&self) {
+        *self.mgmt_state.lock().unwrap() = MgmtState::default();
+        self.mgmt_worker_started.store(false, Ordering::SeqCst);
+    }
+
+    /// 尝试通过 Management API 让 edge 优雅退出（stop）
+    fn try_management_stop(&self) -> Result<()> {
+        // stop 属于写操作：如果主人没配置密码，就先试默认 n2n
+        let pw = self
+            .mgmt_password
+            .lock()
+            .unwrap()
+            .clone()
+            .or_else(|| Some("n2n".to_string()));
+
+        let tag = next_mgmt_tag();
+        let options = match pw.as_deref() {
+            Some(p) if !p.is_empty() => format!("{tag}:1:{p}"),
+            _ => tag.clone(),
+        };
+        let req = format!("w {options} stop\n");
+
+        let socket = UdpSocket::bind(("127.0.0.1", 0)).context("准备 stop 纸条失败")?;
+        socket
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .ok();
+        socket
+            .send_to(req.as_bytes(), ("127.0.0.1", 5644))
+            .context("把 stop 纸条递给 edge（Management API）失败")?;
+
+        let mut buf = vec![0u8; 65535];
+        let deadline = Instant::now() + Duration::from_millis(10000);
+        while Instant::now() < deadline {
+            let (n, _) = match socket.recv_from(&mut buf) {
+                Ok(v) => v,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                    break;
+                }
+                Err(e) => return Err(anyhow::anyhow!("读取 stop 回信失败：{}", e)),
+            };
+
+            let mut s = String::from_utf8_lossy(&buf[..n]).to_string();
+            s = s.trim_matches('\u{0}').trim().to_string();
+            let pkt: MgmtPacket = match serde_json::from_str(&s) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if pkt.tag.as_deref() != Some(tag.as_str()) {
+                continue;
+            }
+            if pkt.kind == "error" {
+                let err = pkt.error.unwrap_or_else(|| "unknown".to_string());
+                return Err(anyhow::anyhow!("Management API stop 失败：{}", err));
+            }
+            if pkt.kind == "end" {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 启动后台“点名 + 测延迟”小工人（仅一次）
+    fn start_peer_worker_if_needed(&self) {
+        if self
+            .peer_worker_started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
+
+        let child = Arc::clone(&self.child);
+        let stop_requested = Arc::clone(&self.stop_requested);
+        let mgmt_password = Arc::clone(&self.mgmt_password);
+        let mgmt_state = Arc::clone(&self.mgmt_state);
+        let peer_cache = Arc::clone(&self.peer_cache);
+        let peer_latency = Arc::clone(&self.peer_latency);
+        let peer_worker_started = Arc::clone(&self.peer_worker_started);
+
+        thread::spawn(move || {
+            let mut fail_streak = 0u32;
+            loop {
+                if stop_requested.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                if child.lock().unwrap().is_none() {
+                    break;
+                }
+
+                if !mgmt_state.lock().unwrap().is_connected() {
+                    thread::sleep(Duration::from_secs(1));
+                    continue;
+                }
+
+                let pw = mgmt_password.lock().unwrap().clone();
+                match query_edges_from_management_api(pw.as_deref()) {
+                    Ok(mut peers) => {
+                        fail_streak = 0;
+
+                        // 过滤掉本机条目（如果有的话），只给主人看“其他伙伴”
+                        peers.retain(|p| p.is_local != Some(true));
+
+                        // 逐个 ping 一下，给主人一个“距离感”
+                        let now = unix_now_seconds();
+                        for p in peers.iter_mut() {
+                            let Some(ref ip) = p.vpn_ip else { continue };
+                            if let Ok(Some(ms)) = ping_once(ip, 1000) {
+                                peer_latency.lock().unwrap().insert(ip.clone(), (ms, now));
+                            }
+                        }
+
+                        *peer_cache.lock().unwrap() = peers;
+                    }
+                    Err(e) => {
+                        fail_streak = fail_streak.saturating_add(1);
+                        // 别太吵：连续失败时降低频率，避免把日志刷爆
+                        log::debug!("Management API 查询失败：{}", e);
+                    }
+                }
+
+                let sleep_secs = if fail_streak >= 3 { 10 } else { 5 };
+                thread::sleep(Duration::from_secs(sleep_secs));
+            }
+
+            // 收工：清空缓存，避免主人看到“过期点名册”
+            peer_cache.lock().unwrap().clear();
+            peer_latency.lock().unwrap().clear();
+            peer_worker_started.store(false, Ordering::SeqCst);
+        });
+    }
+
+    /// 启动后台“管理口状态刷新”小工人（仅一次）
+    fn start_mgmt_worker_if_needed(&self) {
+        if self
+            .mgmt_worker_started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
+
+        let child = Arc::clone(&self.child);
+        let stop_requested = Arc::clone(&self.stop_requested);
+        let mgmt_password = Arc::clone(&self.mgmt_password);
+        let mgmt_state = Arc::clone(&self.mgmt_state);
+        let mgmt_worker_started = Arc::clone(&self.mgmt_worker_started);
+
+        thread::spawn(move || {
+            let mut fail_streak = 0u32;
+            loop {
+                if stop_requested.load(Ordering::SeqCst) {
+                    break;
+                }
+                if child.lock().unwrap().is_none() {
+                    break;
+                }
+
+                // 读操作理论上不需要密码，但有些动作（如 subscribe/stop）会要求认证；
+                // 这里顺便把已知密码带上，避免环境差异导致读不到状态。
+                let pw = mgmt_password.lock().unwrap().clone();
+
+                match query_mgmt_state_snapshot(pw.as_deref()) {
+                    Ok(snapshot) => {
+                        fail_streak = 0;
+                        *mgmt_state.lock().unwrap() = snapshot;
+                    }
+                    Err(e) => {
+                        fail_streak = fail_streak.saturating_add(1);
+                        mgmt_state.lock().unwrap().last_error = Some(e.to_string());
+                    }
+                }
+
+                let sleep_ms = if fail_streak >= 3 { 3000 } else { 1200 };
+                thread::sleep(Duration::from_millis(sleep_ms));
+            }
+
+            *mgmt_state.lock().unwrap() = MgmtState::default();
+            mgmt_worker_started.store(false, Ordering::SeqCst);
+        });
+    }
+}
+
+/// Management API 的 tag 自增器（让每次点名都有自己的编号）
+static MGMT_TAG_COUNTER: AtomicU32 = AtomicU32::new(1);
+
+#[derive(Debug, Clone, Default)]
+struct MgmtState {
+    timestamps: Option<MgmtTimestampsRow>,
+    last_error: Option<String>,
+}
+
+impl MgmtState {
+    fn is_connected(&self) -> bool {
+        let Some(ts) = self.timestamps.as_ref() else { return false };
+        let now = unix_now_seconds();
+        let super_ok = ts.last_super != 0 && now.saturating_sub(ts.last_super) <= 15;
+        let p2p_ok = ts.last_p2p != 0 && now.saturating_sub(ts.last_p2p) <= 15;
+        // edge 的 last_super 通常几秒内就会更新；这里给一个宽松阈值，避免短暂抖动把 UI 误判成“断开”
+        super_ok || p2p_ok
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MgmtPacket {
+    #[serde(rename = "_tag")]
+    tag: Option<String>,
+    #[serde(rename = "_type")]
+    kind: String,
+    error: Option<String>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct MgmtTimestampsRow {
+    start_time: u64,
+    last_super: u64,
+    last_p2p: u64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct MgmtEdgeRow {
+    mode: Option<String>,
+    ip4addr: Option<String>,
+    sockaddr: Option<String>,
+    desc: Option<String>,
+    #[serde(alias = "lastseen")]
+    last_seen: Option<u64>,
+    local: Option<u64>,
+}
+
+fn unix_now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs()
+}
+
+/// 从 extra_args 中悄悄摸出 management password（如果主人给了的话）
+fn extract_management_password(extra_args: Option<&str>) -> Option<String> {
+    let s = extra_args?;
+    let mut it = s.split_whitespace().peekable();
+    while let Some(tok) = it.next() {
+        if tok == "--management-password" {
+            return it.next().map(|v| v.to_string());
+        }
+    }
+    None
+}
+
+fn next_mgmt_tag() -> String {
+    let n = MGMT_TAG_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{}", n % 1000)
+}
+
+fn build_mgmt_request(method: &str, password: Option<&str>) -> (String, String) {
+    let tag = next_mgmt_tag();
+    let options = match password {
+        Some(pw) if !pw.is_empty() => format!("{tag}:1:{pw}"),
+        _ => tag.clone(),
+    };
+    // 备注：协议要求单行、<=80 bytes；这里 method 都很短
+    (tag, format!("r {options} {method}\n"))
+}
+
+fn query_mgmt_state_snapshot(password: Option<&str>) -> Result<MgmtState> {
+    let timestamps = query_mgmt_single_row::<MgmtTimestampsRow>("timestamps", password)?;
+
+    Ok(MgmtState {
+        timestamps,
+        last_error: None,
+    })
+}
+
+fn query_mgmt_single_row<T>(method: &str, password: Option<&str>) -> Result<Option<T>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let mut rows = query_mgmt_rows::<T>(method, password)?;
+    Ok(rows.pop())
+}
+
+fn query_mgmt_rows<T>(method: &str, password: Option<&str>) -> Result<Vec<T>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let rows_json = query_mgmt_rows_json(method, password)?;
+    let mut out = Vec::new();
+    for row in rows_json {
+        if let Ok(v) = serde_json::from_value::<T>(row) {
+            out.push(v);
+        }
+    }
+    Ok(out)
+}
+
+fn query_mgmt_rows_json(method: &str, password: Option<&str>) -> Result<Vec<serde_json::Value>> {
+    match query_mgmt_rows_json_once(method, password) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            // 默认密码是 n2n：如果主人没配置密码且遇到 badauth，就用默认钥匙再试一次
+            if password.is_none() && e.to_string().contains("badauth") {
+                return query_mgmt_rows_json_once(method, Some("n2n"));
+            }
+            Err(e)
+        }
+    }
+}
+
+fn query_mgmt_rows_json_once(method: &str, password: Option<&str>) -> Result<Vec<serde_json::Value>> {
+    let (tag, req) = build_mgmt_request(method, password);
+    let socket = UdpSocket::bind(("127.0.0.1", 0)).context("准备 Management API 询问纸条失败")?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .ok();
+    socket
+        .send_to(req.as_bytes(), ("127.0.0.1", 5644))
+        .context("把询问纸条递给 edge（Management API）失败")?;
+
+    let mut buf = vec![0u8; 65535];
+    let deadline = Instant::now() + Duration::from_millis(800);
+
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+
+    while Instant::now() < deadline {
+        let (n, _) = match socket.recv_from(&mut buf) {
+            Ok(v) => v,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                break;
+            }
+            Err(e) => return Err(anyhow::anyhow!("读取 Management API 回信失败：{}", e)),
+        };
+
+        let mut s = String::from_utf8_lossy(&buf[..n]).to_string();
+        s = s.trim_matches('\u{0}').trim().to_string();
+        let pkt: MgmtPacket = match serde_json::from_str(&s) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if pkt.tag.as_deref() != Some(tag.as_str()) {
+            continue;
+        }
+
+        match pkt.kind.as_str() {
+            "error" => {
+                let err = pkt.error.unwrap_or_else(|| "unknown".to_string());
+                return Err(anyhow::anyhow!("Management API 返回错误：{}", err));
+            }
+            "row" => rows.push(serde_json::Value::Object(pkt.extra)),
+            "end" => break,
+            _ => {}
+        }
+    }
+
+    Ok(rows)
+}
+
+fn query_edges_from_management_api(password: Option<&str>) -> Result<Vec<PeerNodeInfo>> {
+    match query_edges_from_management_api_once(password) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            // 默认密码是 n2n：如果主人没配置密码且遇到 badauth，就用默认钥匙再试一次
+            if password.is_none() && e.to_string().contains("badauth") {
+                return query_edges_from_management_api_once(Some("n2n"));
+            }
+            Err(e)
+        }
+    }
+}
+
+fn query_edges_from_management_api_once(password: Option<&str>) -> Result<Vec<PeerNodeInfo>> {
+    let (tag, req) = build_mgmt_request("edges", password);
+    let socket = UdpSocket::bind(("127.0.0.1", 0)).context("准备 Management API 询问纸条失败")?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(300)))
+        .ok();
+    socket
+        .send_to(req.as_bytes(), ("127.0.0.1", 5644))
+        .context("把询问纸条递给 edge（Management API）失败")?;
+
+    let mut buf = vec![0u8; 65535];
+    let deadline = Instant::now() + Duration::from_millis(1500);
+
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+
+    while Instant::now() < deadline {
+        let (n, _) = match socket.recv_from(&mut buf) {
+            Ok(v) => v,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                break;
+            }
+            Err(e) => return Err(anyhow::anyhow!("读取 Management API 回信失败：{}", e)),
+        };
+
+        let mut s = String::from_utf8_lossy(&buf[..n]).to_string();
+        // edge 回包尾部可能带 \0，让恩兔把它扫掉
+        s = s.trim_matches('\u{0}').trim().to_string();
+
+        let pkt: MgmtPacket = match serde_json::from_str(&s) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if pkt.tag.as_deref() != Some(tag.as_str()) {
+            continue;
+        }
+
+        match pkt.kind.as_str() {
+            "error" => {
+                let err = pkt.error.unwrap_or_else(|| "unknown".to_string());
+                return Err(anyhow::anyhow!("Management API 返回错误：{}", err));
+            }
+            "begin" => {}
+            "row" => rows.push(serde_json::Value::Object(pkt.extra)),
+            "end" => break,
+            _ => {}
+        }
+    }
+
+    let mut peers = Vec::new();
+    for row in rows {
+        let parsed: MgmtEdgeRow = match serde_json::from_value(row) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let vpn_ip = parsed.ip4addr.as_deref().and_then(|s| s.split('/').next()).map(|s| s.to_string());
+        peers.push(PeerNodeInfo {
+            name: parsed.desc,
+            vpn_addr: parsed.ip4addr,
+            vpn_ip,
+            public_addr: parsed.sockaddr,
+            mode: parsed.mode,
+            last_seen: parsed.last_seen,
+            is_local: parsed.local.map(|v| v != 0),
+            latency_ms: None,
+            last_ping: None,
+        });
+    }
+
+    Ok(peers)
+}
+
+fn ping_once(ip: &str, timeout_ms: u64) -> Result<Option<f64>> {
+    let mut cmd = Command::new("ping");
+    #[cfg(target_os = "windows")]
+    {
+        cmd.args(["-n", "1", "-w", &timeout_ms.to_string(), ip]);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let sec = ((timeout_ms + 999) / 1000).max(1);
+        cmd.args(["-n", "-c", "1", "-W", &sec.to_string(), ip]);
+    }
+
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(_) => return Ok(None),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}\n{stderr}");
+
+    Ok(parse_ping_latency_ms(&combined))
+}
+
+fn parse_ping_latency_ms(s: &str) -> Option<f64> {
+    // Linux/macOS: time=12.3 ms / time<1 ms
+    // Windows（中英本地化都可能出现）: time=12ms / 时间=12ms
+    for key in ["time=", "time<", "时间=", "时间<"] {
+        if let Some(pos) = s.find(key) {
+            let rest = &s[pos + key.len()..];
+            let mut num = String::new();
+            for ch in rest.chars() {
+                if ch.is_ascii_digit() || ch == '.' {
+                    num.push(ch);
+                    continue;
+                }
+                break;
+            }
+            if key.ends_with('<') {
+                // time<1ms 这种就当 1ms（保守一点给主人看）
+                return Some(1.0);
+            }
+            if !num.is_empty() {
+                if let Ok(v) = num.parse::<f64>() {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(target_os = "linux")]
@@ -869,5 +1555,19 @@ mod tests {
             extract_user_facing_notice(line).as_deref(),
             Some("error_mac_or_ip_in_use")
         );
+    }
+
+    #[test]
+    fn test_extract_management_password_from_extra_args() {
+        let args = Some("--management-password mypw -v -E");
+        assert_eq!(extract_management_password(args), Some("mypw".to_string()));
+        assert_eq!(extract_management_password(Some("-v -E")), None);
+    }
+
+    #[test]
+    fn test_parse_ping_latency_ms_variants() {
+        assert_eq!(parse_ping_latency_ms("64 bytes from 1.1.1.1: time=12.34 ms"), Some(12.34));
+        assert_eq!(parse_ping_latency_ms("64 bytes from 1.1.1.1: time<1 ms"), Some(1.0));
+        assert_eq!(parse_ping_latency_ms("来自 1.1.1.1 的回复：时间=23ms TTL=64"), Some(23.0));
     }
 }

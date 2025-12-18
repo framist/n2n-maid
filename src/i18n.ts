@@ -53,9 +53,21 @@ const resources = {
       
       // 网卡信息
       "network_info": "通道详情",
+      "network_info_waiting": "恩兔正在整理通道回执单（网卡信息还没拿到）…",
       "ip": "地址",
       "mask": "子网掩码",
       "mac": "硬件编号",
+
+      // 同伴节点
+      "peer_list": "同伴列表",
+      "peer_list_empty": "暂时还没看到其他伙伴呢",
+      "peer_name": "昵称",
+      "peer_vpn_ip": "VPN 地址",
+      "peer_mode": "模式",
+      "peer_public_addr": "公网地址",
+      "peer_latency": "延迟",
+      "peer_last_seen": "再见",
+      "latency_unknown": "—",
       
       // 参数说明 - 简化且亲切
       "supernode_desc": "总部服务器的地址，告诉恩兔去哪里领任务呀（格式：vpn.example.com:7777）",
@@ -140,9 +152,21 @@ const resources = {
       
       // Network info
       "network_info": "Tunnel Details",
+      "network_info_waiting": "N-Too is still preparing the receipt (network details not ready yet)…",
       "ip": "Address",
       "mask": "Subnet Mask",
       "mac": "Hardware ID",
+
+      // Peers
+      "peer_list": "Peers",
+      "peer_list_empty": "No other peers spotted yet...",
+      "peer_name": "Name",
+      "peer_vpn_ip": "VPN IP",
+      "peer_mode": "Mode",
+      "peer_public_addr": "Public",
+      "peer_latency": "Latency",
+      "peer_last_seen": "Last seen",
+      "latency_unknown": "—",
       
       // Parameter descriptions - Simplified and friendly
       "supernode_desc": "The head office address where N-Too gets her tasks (format: vpn.example.com:7777)",

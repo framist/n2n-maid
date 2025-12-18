@@ -107,7 +107,7 @@ body {
   transform: scale(1.03); /* 轻微呼吸感 */
 }
 
-/* 右侧浮动操作区：整体右侧 2/3，留白让立绘呼吸 */
+/* 右侧浮动操作区：整体靠右，面板更宽一些，留白让立绘呼吸 */
 .maid-shell {
   position: relative;
   z-index: 1;
@@ -121,7 +121,11 @@ body {
 }
 
 .maid-panel {
-  width: 36rem; /* 与 Settings 的 max-w-xl 对齐 */
+  /*
+   * 让面板在大屏上占得更满一些（更接近 2/3 视觉比例），
+   * 但仍保留最大宽度，避免内容行太长。
+   */
+  width: min(36rem, 72vw);
   max-width: 36rem;
   height: 100%;
   display: flex;
@@ -142,8 +146,8 @@ body {
 
 @media (max-width: 1080px) {
   .maid-panel {
-    width: 32rem;
-    max-width: 32rem;
+    width: min(42rem, 92vw);
+    max-width: 42rem;
   }
 }
 

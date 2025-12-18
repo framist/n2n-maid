@@ -7,6 +7,19 @@ export interface NetworkInfo {
   mac: string;
 }
 
+/// 同伴节点信息（来自 n2n Management API）
+export interface PeerNodeInfo {
+  name?: string | null;
+  vpnAddr?: string | null;
+  vpnIp?: string | null;
+  publicAddr?: string | null;
+  mode?: string | null;
+  lastSeen?: number | null;
+  isLocal?: boolean | null;
+  latencyMs?: number | null;
+  lastPing?: number | null;
+}
+
 export interface N2NConfig {
   supernode: string;
   community: string;
