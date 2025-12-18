@@ -192,14 +192,15 @@ sudo setcap cap_net_admin+ep ./bin/edge
   - [x] 系统托盘支持
   - [x] 国际化（中英文）
   - [x] 自动重连机制
-- [ ] 阶段三：Windows 深度适配
+- [x] 阶段三：Windows 深度适配
   - [x] TAP 驱动检测（启动时提示并引导安装）
   - [x] UAC 权限（requireAdministrator）
-  - [ ] 安装包构建（MSI/EXE）
+  - [x] 安装包构建（MSI/EXE）
 - [ ] 阶段四：高级功能
   - [ ] Supernode 订阅机制
   - [ ] 流量统计图表
-  - [ ] Peers 信息显示
+  - [x] Peers 信息显示
+  - [ ] 托盘等系统有关功能优化
 
 ## 贡献
 
