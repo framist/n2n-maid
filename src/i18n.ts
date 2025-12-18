@@ -4,7 +4,7 @@ import { initReactI18next } from 'react-i18next';
 const resources = {
   zh: {
     translation: {
-      "app_title": "N2N Maid · 恩兔酱",
+      "app_title": "N2N Maid · 恩兔 妹抖",
       "connect": "建立通道",
       "disconnect": "休息一下",
       "connecting": "正在铺设通道...",
@@ -23,9 +23,9 @@ const resources = {
       "encryption_key": "保密密语",
       "ip_mode": "地址分配",
       "static_ip": "指定地址",
-      "dhcp": "自动分配",
-      "static": "手动指定",
-      "advanced_settings": "专业设置",
+      "dhcp": "自动的 (dhcp)",
+      "static": "不动的 (static)",
+      "advanced_settings": "高级的设置",
       "extra_args": "奇妙指令",
       "edge_path": "工具箱路径",
       "tap_device": "设备名称",
@@ -75,7 +75,7 @@ const resources = {
       "username_desc": "可选。给设备起个昵称，方便主人辨认；留空就用电脑的名字啦",
       "encryption_key_desc": "保密用的密语（可选），设置后通道会更安全。留空就不加密，但不太推荐呢",
       "ip_mode_desc": "选择恩兔怎么获取地址：自动分配就交给总部，手动指定就由主人决定",
-      "static_ip_desc": "手动指定的地址，格式像这样：10.0.0.2 或 10.0.0.2/24",
+      "static_ip_desc": "手动指定的地址，格式像这样：192.168.125.xxx",
       "extra_args_desc": "给恩兔的魔法掸子加点特技，比如 -v（多话模式）、-r（帮忙转发）、-E（接收广播）",
       "edge_path_desc": "恩兔的工具箱放在哪里，留空就用默认位置（bin/edge）",
       "tap_device_desc": "虚拟网卡的名字，留空恩兔会自动取名（比如 edge0）",

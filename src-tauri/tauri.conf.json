@@ -39,7 +39,7 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ],
-    "resources": ["../bin/*"],
+    "resources": ["bin/*"],
     "externalBin": [],
     "publisher": "framist (framist@163.com)",
     "homepage": "https://github.com/framist/n2n-maid",

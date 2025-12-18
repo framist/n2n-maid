@@ -60,9 +60,9 @@ const MGMT_EDGES_DEADLINE_MS: u64 = 1500;
 /// 判断心跳是否有效的最大时间间隔（秒）
 const HEARTBEAT_MAX_INTERVAL_SECS: u64 = 15;
 /// 判断心跳断联的最大时间间隔（秒）- 用于提示"总部不可达"
-const HEARTBEAT_DISCONNECT_THRESHOLD_SECS: u64 = 20;
+const HEARTBEAT_DISCONNECT_THRESHOLD_SECS: u64 = 30;
 /// edge 启动后等待首次 supernode 连接的超时（秒）
-const EDGE_STARTUP_WAIT_SECS: u64 = 10;
+const EDGE_STARTUP_WAIT_SECS: u64 = 30;
 
 /// Windows 下创建子进程时不弹黑框（恩兔把黑框悄悄收起来）
 #[cfg(target_os = "windows")]
@@ -202,6 +202,9 @@ impl N2NProcess {
             .as_ref()
             .map(|p| p.to_string())
             .unwrap_or_else(|| self.get_default_edge_path());
+
+        // 记录实际使用的 edge 路径（方便调试）
+        log::info!("恩兔要打扫通道啦～ edge 可执行文件位置：{}", edge_path);
 
         // Linux 下 edge 通常需要 root/capabilities（创建 TAP、切换权限等）
         // 这里优先尝试为 edge 二进制授予 capabilities，避免用 pkexec 包裹运行导致 stop() 无法精确控制 edge PID
@@ -1567,12 +1570,12 @@ fn get_default_node_name() -> String {
 fn extract_user_facing_notice(line: &str) -> Option<String> {
     let l = line.to_ascii_lowercase();
 
-    // 1) TAP 创建被占用：典型表现是 tuntap ioctl + TUNSETIFF + Device or resource busy
+    // TAP 创建被占用：典型表现是 tuntap ioctl + TUNSETIFF + Device or resource busy
     if l.contains("tunsetiff") && (l.contains("device or resource busy") || l.contains("resource busy")) {
         return Some("error_tap_busy".to_string());
     }
 
-    // 2) supernode 端认为 MAC/IP 还没释放：edge 会持续重试，不一定会退出
+    // supernode 端认为 MAC/IP 还没释放：edge 会持续重试，不一定会退出
     if l.contains("authentication error")
         && l.contains("mac or ip")
         && l.contains("already in use")
@@ -1580,7 +1583,7 @@ fn extract_user_facing_notice(line: &str) -> Option<String> {
         return Some("error_mac_or_ip_in_use".to_string());
     }
 
-    // 3) 分开匹配：MAC/IP 已被占用（可能是另一个设备还在用）
+    // 分开匹配：MAC/IP 已被占用（可能是另一个设备还在用）
     if l.contains("already in use") {
         if l.contains("mac") {
             return Some("error_mac_in_use".to_string());
@@ -1590,12 +1593,12 @@ fn extract_user_facing_notice(line: &str) -> Option<String> {
         }
     }
 
-    // 4) 权限问题（Linux 常见：Operation not permitted / EPERM）
+    // 权限问题（Linux 常见：Operation not permitted / EPERM）
     if l.contains("operation not permitted") || l.contains("permission denied") || l.contains("eperm") {
         return Some("error_permission_denied".to_string());
     }
 
-    // 5) “联系不上总部”（域名解析/超时/无路由等）
+    // “联系不上总部”（域名解析/超时/无路由等）
     if l.contains("no route to host")
         || l.contains("network is unreachable")
         || l.contains("connection timed out")
@@ -1607,12 +1610,17 @@ fn extract_user_facing_notice(line: &str) -> Option<String> {
         return Some("error_supernode_unreachable".to_string());
     }
 
-    // 6) 其他认证失败（密钥/暗号不对等）
+    // 其他认证失败（密钥/暗号不对等）
     if l.contains("authentication error") || (l.contains("auth") && l.contains("error")) {
         return Some("error_auth_failed".to_string());
     }
 
-    // 7) 兜底：把明显的 ERROR/failed/Cannot 行直接递给主人（原样显示）
+    // WSAECONNRESET 10054 连接被重置 UDP 中被忽略（正常）WARNING: WSAGetLastError(): 10047 
+    if l.contains("10054") {
+        return None;
+    }
+
+    // 兜底：把明显的 ERROR/failed/Cannot 行直接递给主人（原样显示）
     if l.contains("error") || l.contains("failed") || l.contains("cannot") {
         return Some(line.trim().to_string());
     }
