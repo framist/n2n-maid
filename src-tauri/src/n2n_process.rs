@@ -48,6 +48,8 @@ pub struct N2NProcess {
     child: Arc<Mutex<Option<Child>>>,
     /// 当前工作状态
     status: Arc<Mutex<ConnectionStatus>>,
+    /// 最近一次“需要主人注意”的提示（不一定致命，可能只是需要等待/检查配置）
+    last_notice: Arc<Mutex<Option<String>>>,
     /// 工作汇报通道
     log_tx: Option<mpsc::UnboundedSender<String>>,
     /// 自动重连配置（断线后自动重新打扫）
@@ -63,6 +65,7 @@ impl N2NProcess {
         Self {
             child: Arc::new(Mutex::new(None)),
             status: Arc::new(Mutex::new(ConnectionStatus::Disconnected)),
+            last_notice: Arc::new(Mutex::new(None)),
             log_tx: None,
             auto_reconnect: Arc::new(Mutex::new(None)),
             stop_requested: Arc::new(AtomicBool::new(false)),
@@ -72,6 +75,18 @@ impl N2NProcess {
     /// 设置日志发送通道
     pub fn set_log_sender(&mut self, tx: mpsc::UnboundedSender<String>) {
         self.log_tx = Some(tx);
+    }
+
+    /// 给日志面板塞一条“工作汇报”
+    fn send_log_line(&self, line: String) {
+        if let Some(ref tx) = self.log_tx {
+            let _ = tx.send(line);
+        }
+    }
+
+    /// 给主人一个进度提示（不会改变连接状态）
+    pub fn log_info(&self, msg: impl AsRef<str>) {
+        self.send_log_line(format!("[INFO] {}", msg.as_ref()));
     }
 
     /// 启动 N2N edge 进程
@@ -86,6 +101,8 @@ impl N2NProcess {
 
         // 更新状态为连接中
         *self.status.lock().unwrap() = ConnectionStatus::Connecting;
+        // 清空上一次的“提醒便签”，避免主人看到过期信息
+        *self.last_notice.lock().unwrap() = None;
 
         // 确定 edge 可执行文件路径
         let edge_path = config
@@ -101,22 +118,32 @@ impl N2NProcess {
             let mut edge_path = edge_path;
             if !nix::unistd::Uid::effective().is_root() {
                 // 解析为绝对路径，避免 setcap/实际启动的二进制不一致
-                edge_path = resolve_edge_path_for_caps(&edge_path)?;
+                edge_path = match resolve_edge_path_for_caps(&edge_path) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        *self.status.lock().unwrap() = ConnectionStatus::Error(e.to_string());
+                        return Err(e);
+                    }
+                };
 
                 // 如果用户取消授权或系统缺少依赖，直接中止连接流程，避免后续出现更难理解的 EPERM
-                ensure_edge_capabilities(&edge_path).map_err(|e| {
-                    anyhow::anyhow!(
+                if let Err(e) = ensure_edge_capabilities(&edge_path) {
+                    let e = anyhow::anyhow!(
                         "需要管理员授权以配置 edge 权限（KDE 下会弹出授权窗口）。详细错误：{}",
                         e
-                    )
-                })?;
+                    );
+                    *self.status.lock().unwrap() = ConnectionStatus::Error(e.to_string());
+                    return Err(e);
+                }
             }
             edge_path
         };
 
         // 校验 supernode 格式（必须是 host:port）
         if !config.supernode.contains(':') {
-            return Err(anyhow::anyhow!("Supernode 地址格式错误，必须包含端口号（如 vpn.example.com:7777）"));
+            let e = anyhow::anyhow!("Supernode 地址格式错误，必须包含端口号（如 vpn.example.com:7777）");
+            *self.status.lock().unwrap() = ConnectionStatus::Error(e.to_string());
+            return Err(e);
         }
 
         // 构建命令参数
@@ -208,14 +235,20 @@ impl N2NProcess {
             }
         }
 
-        let mut child = cmd.spawn()
-            .context("启动 N2N edge 进程失败")?;
+        let mut child = match cmd.spawn().context("启动 N2N edge 进程失败") {
+            Ok(child) => child,
+            Err(e) => {
+                *self.status.lock().unwrap() = ConnectionStatus::Error(e.to_string());
+                return Err(e);
+            }
+        };
 
         // 捕获 stdout 和 stderr
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
         let status_clone = Arc::clone(&self.status);
+        let last_notice = Arc::clone(&self.last_notice);
         let log_tx_clone = self.log_tx.clone();
         let stop_requested = Arc::clone(&self.stop_requested);
 
@@ -224,60 +257,52 @@ impl N2NProcess {
             let log_tx = log_tx_clone.clone();
             let status = Arc::clone(&status_clone);
             let stop_requested = Arc::clone(&stop_requested);
+            let last_notice = Arc::clone(&last_notice);
             thread::spawn(move || {
                 let reader = BufReader::new(stdout);
-                let mut connected = false;
-                let mut saw_error = None::<String>;
                 let mut network_info: Option<NetworkInfo> = None;
                 
                 for line in reader.lines() {
                     if let Ok(line) = line {
                         log::info!("N2N stdout: {}", line);
 
+                        // 如果主人已经让恩兔“收拾工具”，就别再用 ERROR 把主人吓一跳啦
+                        if stop_requested.load(Ordering::SeqCst) {
+                            if let Some(ref tx) = log_tx {
+                                let _ = tx.send(format!("[OUT] {}", line));
+                            }
+                            continue;
+                        }
+
                         // 提取网卡信息：created local tap device IP: 192.168.125.67, Mask: 255.255.255.0, MAC: C6:D2:CB:35:42:85
                         if line.contains("created local tap device") {
                             if let Some(info) = parse_network_info(&line) {
                                 network_info = Some(info);
                                 log::info!("提取到网卡信息：{:?}", network_info);
+                                // 如果已经连接成功了，就把详情也补写进状态里（给主人递上“通道回执单”）
+                                if let Some(ref info) = network_info {
+                                    let current = status.lock().unwrap().clone();
+                                    if matches!(current, ConnectionStatus::Connected(_)) {
+                                        *status.lock().unwrap() = ConnectionStatus::Connected(Some(info.clone()));
+                                    }
+                                }
                             }
                         }
 
                         // 检测连接成功的关键字
                         // 备注：不同版本 edge 输出不完全一致，这里做兼容匹配
-                        if line.contains("Registered with")
-                            || line.contains("edge <<<")
-                            || line.contains("edge started")
+                        if line.contains("edge <<<")
                             || line.contains("[OK] edge <<<")
                         {
+                            log::info!("检测到连接成功标志{}", line);
                             *status.lock().unwrap() = ConnectionStatus::Connected(network_info.clone());
-                            connected = true;
+                            // 连接成功就把“提醒便签”撕掉，避免主人继续担心
+                            *last_notice.lock().unwrap() = None;
                         }
 
-                        // 检测错误（注意：edge 的 ERROR 可能出现在 stdout）
-                        if line.contains("ERROR")
-                            || line.contains("authentication error")
-                            || line.contains("already in use")
-                            || line.contains("failed")
-                            || line.contains("Cannot")
-                        {
-                            // 识别常见错误并提供友好提示
-                            let error_msg = if line.contains("MAC") && line.contains("already in use") {
-                                "error_mac_in_use".to_string()
-                            } else if line.contains("IP") && line.contains("already in use") {
-                                "error_ip_in_use".to_string()
-                            } else if line.contains("TAP") || line.contains("tuntap") {
-                                "error_tap_create_failed".to_string()
-                            } else if line.contains("authentication") || line.contains("auth") {
-                                "error_auth_failed".to_string()
-                            } else if line.contains("unreachable") || line.contains("connect") {
-                                "error_supernode_unreachable".to_string()
-                            } else if line.contains("permission") || line.contains("EPERM") {
-                                "error_permission_denied".to_string()
-                            } else {
-                                line.clone()
-                            };
-                            saw_error = Some(error_msg.clone());
-                            *status.lock().unwrap() = ConnectionStatus::Error(error_msg);
+                        // 识别常见问题并提示给主人（注意：edge 的 ERROR 可能出现在 stdout）
+                        if let Some(notice) = extract_user_facing_notice(&line) {
+                            set_last_notice_if_changed(&last_notice, notice);
                         }
 
                         // 检测启动警告（仅日志提示，不改变状态）
@@ -294,71 +319,35 @@ impl N2NProcess {
                         }
                     }
                 }
-                // stdout 关闭意味着进程退出
-                log::info!("N2N stdout 读取结束，连接状态：{}", connected);
-
-                // 主动断开：保持/切换为 Disconnected，不要标记为 Error
-                if stop_requested.load(Ordering::SeqCst) {
-                    *status.lock().unwrap() = ConnectionStatus::Disconnected;
-                    return;
-                }
-
-                // 非主动断开：如果从未成功连接且也没捕获到具体错误，则给出兜底错误
-                if !connected {
-                    let current = status.lock().unwrap().clone();
-                    if matches!(current, ConnectionStatus::Connecting) {
-                        let msg = saw_error.unwrap_or_else(|| "进程启动失败".to_string());
-                        *status.lock().unwrap() = ConnectionStatus::Error(msg);
-                    }
-                }
             });
         }
 
         if let Some(stderr) = stderr {
             let log_tx = log_tx_clone;
-            let status = Arc::clone(&status_clone);
             let stop_requested = Arc::clone(&stop_requested);
+            let last_notice = Arc::clone(&last_notice);
             thread::spawn(move || {
                 let reader = BufReader::new(stderr);
                 for line in reader.lines() {
                     if let Ok(line) = line {
                         log::warn!("N2N stderr: {}", line);
+
+                        if stop_requested.load(Ordering::SeqCst) {
+                            if let Some(ref tx) = log_tx {
+                                let _ = tx.send(format!("[ERR] {}", line));
+                            }
+                            continue;
+                        }
                         
-                        // 检测错误
-                        if line.contains("ERROR") || line.contains("failed") || line.contains("Cannot") {
-                            // 识别常见错误并提供友好提示
-                            let error_msg = if line.contains("MAC") && line.contains("already in use") {
-                                "error_mac_in_use".to_string()
-                            } else if line.contains("IP") && line.contains("already in use") {
-                                "error_ip_in_use".to_string()
-                            } else if line.contains("TAP") || line.contains("tuntap") {
-                                "error_tap_create_failed".to_string()
-                            } else if line.contains("authentication") || line.contains("auth") {
-                                "error_auth_failed".to_string()
-                            } else if line.contains("unreachable") || line.contains("connect") {
-                                "error_supernode_unreachable".to_string()
-                            } else if line.contains("permission") || line.contains("EPERM") {
-                                "error_permission_denied".to_string()
-                            } else {
-                                line.clone()
-                            };
-                            *status.lock().unwrap() = ConnectionStatus::Error(error_msg);
+                        // 识别常见问题并提示给主人（stderr 里也会冒出关键 ERROR）
+                        if let Some(notice) = extract_user_facing_notice(&line) {
+                            set_last_notice_if_changed(&last_notice, notice);
                         }
                         
                         if let Some(ref tx) = log_tx {
                             let _ = tx.send(format!("[ERR] {}", line));
                         }
                     }
-                }
-                // stderr 关闭时，检查当前状态
-                if stop_requested.load(Ordering::SeqCst) {
-                    *status.lock().unwrap() = ConnectionStatus::Disconnected;
-                    return;
-                }
-
-                let current = status.lock().unwrap().clone();
-                if matches!(current, ConnectionStatus::Connecting) {
-                    *status.lock().unwrap() = ConnectionStatus::Disconnected;
                 }
             });
         }
@@ -379,6 +368,7 @@ impl N2NProcess {
     fn start_monitor(&self) -> Result<()> {
         let child_clone = Arc::clone(&self.child);
         let status_clone = Arc::clone(&self.status);
+        let last_notice = Arc::clone(&self.last_notice);
         let log_tx_clone = self.log_tx.clone();
         let stop_requested = Arc::clone(&self.stop_requested);
         
@@ -403,7 +393,7 @@ impl N2NProcess {
                                 if stop_requested.load(Ordering::SeqCst) {
                                     let _ = tx.send("[INFO] N2N 进程已断开".to_string());
                                 } else {
-                                    let _ = tx.send("[WARN] N2N 进程意外退出...".to_string());
+                                    let _ = tx.send(format!("[WARN] N2N 进程意外退出：{:?}", exit_status));
                                 }
                             }
                             
@@ -411,7 +401,18 @@ impl N2NProcess {
                             *child_guard = None;
                             drop(child_guard);
 
-                            *status_clone.lock().unwrap() = ConnectionStatus::Disconnected;
+                            // 主人主动断开：回到待命；否则：进程都摔倒了，必须给主人一个“出错了”的交代
+                            if stop_requested.load(Ordering::SeqCst) {
+                                *status_clone.lock().unwrap() = ConnectionStatus::Disconnected;
+                                *last_notice.lock().unwrap() = None;
+                            } else {
+                                let msg = last_notice
+                                    .lock()
+                                    .unwrap()
+                                    .clone()
+                                    .unwrap_or_else(|| "error_edge_exited".to_string());
+                                *status_clone.lock().unwrap() = ConnectionStatus::Error(msg);
+                            }
                             break;
                         }
                         Ok(None) => {
@@ -437,6 +438,8 @@ impl N2NProcess {
 
         // 标记为主动停止，避免读线程把退出误判为错误
         self.stop_requested.store(true, Ordering::SeqCst);
+        // 主人都叫停了，就别再拿旧的“提醒便签”继续叨叨啦
+        *self.last_notice.lock().unwrap() = None;
 
         // 立刻切换状态，UI 侧可提示用户等待
         *self.status.lock().unwrap() = ConnectionStatus::Disconnecting;
@@ -514,6 +517,7 @@ impl N2NProcess {
         *self.auto_reconnect.lock().unwrap() = None;
 
         self.stop_requested.store(true, Ordering::SeqCst);
+        *self.last_notice.lock().unwrap() = None;
 
         let mut child_guard = self.child.lock().unwrap();
         if let Some(child) = child_guard.as_mut() {
@@ -601,6 +605,12 @@ impl N2NProcess {
         self.status.lock().unwrap().clone()
     }
 
+    /// 取出最近一次“需要主人注意”的提示
+    /// - 说明：这不等价于“致命错误”；有些情况 edge 会继续重试（例如 MAC/IP 未释放）
+    pub fn last_notice(&self) -> Option<String> {
+        self.last_notice.lock().unwrap().clone()
+    }
+
     /// 获取默认的 edge 可执行文件路径
     fn get_default_edge_path(&self) -> String {
         #[cfg(target_os = "windows")]
@@ -681,8 +691,29 @@ fn ensure_edge_capabilities(edge_path: &str) -> Result<()> {
 impl Drop for N2NProcess {
     fn drop(&mut self) {
         // 进程退出时尽量避免残留子进程
-        // 说明：正常点击“断开”会优雅退出；应用退出时这里兜底强制清理
-        let _ = self.stop_force();
+        // 说明：正常点击“断开”会优雅退出；应用退出时这里也尽量先温柔收拾（SIGINT），再兜底强制清理
+        if !self.is_running() {
+            return;
+        }
+
+        // 先尝试温柔收拾工具（优雅退出）
+        let _ = self.stop();
+
+        // 稍等一会儿，让 edge 自己把活收尾；如果不听话，再请“掸子重击”出场
+        let mut need_force = true;
+        {
+            let mut child_guard = self.child.lock().unwrap();
+            if let Some(child) = child_guard.as_mut() {
+                if let Ok(true) = wait_child_exit(child, Duration::from_secs(5)) {
+                    *child_guard = None;
+                    need_force = false;
+                }
+            }
+        }
+
+        if need_force {
+            let _ = self.stop_force();
+        }
     }
 }
 
@@ -746,6 +777,71 @@ fn get_default_node_name() -> String {
     }
 }
 
+/// 从 edge 的输出里提取一个“对主人友好”的提示文案（i18n key 或原始片段）
+fn extract_user_facing_notice(line: &str) -> Option<String> {
+    let l = line.to_ascii_lowercase();
+
+    // 1) TAP 创建被占用：典型表现是 tuntap ioctl + TUNSETIFF + Device or resource busy
+    if l.contains("tunsetiff") && (l.contains("device or resource busy") || l.contains("resource busy")) {
+        return Some("error_tap_busy".to_string());
+    }
+
+    // 2) supernode 端认为 MAC/IP 还没释放：edge 会持续重试，不一定会退出
+    if l.contains("authentication error")
+        && l.contains("mac or ip")
+        && l.contains("already in use")
+    {
+        return Some("error_mac_or_ip_in_use".to_string());
+    }
+
+    // 3) 分开匹配：MAC/IP 已被占用（可能是另一个设备还在用）
+    if l.contains("already in use") {
+        if l.contains("mac") {
+            return Some("error_mac_in_use".to_string());
+        }
+        if l.contains(" ip ") || l.contains("ip address") {
+            return Some("error_ip_in_use".to_string());
+        }
+    }
+
+    // 4) 权限问题（Linux 常见：Operation not permitted / EPERM）
+    if l.contains("operation not permitted") || l.contains("permission denied") || l.contains("eperm") {
+        return Some("error_permission_denied".to_string());
+    }
+
+    // 5) “联系不上总部”（域名解析/超时/无路由等）
+    if l.contains("no route to host")
+        || l.contains("network is unreachable")
+        || l.contains("connection timed out")
+        || l.contains("timed out")
+        || l.contains("unreachable")
+        || l.contains("unable to resolve")
+        || l.contains("failed to resolve")
+    {
+        return Some("error_supernode_unreachable".to_string());
+    }
+
+    // 6) 其他认证失败（密钥/暗号不对等）
+    if l.contains("authentication error") || (l.contains("auth") && l.contains("error")) {
+        return Some("error_auth_failed".to_string());
+    }
+
+    // 7) 兜底：把明显的 ERROR/failed/Cannot 行直接递给主人（原样显示）
+    if l.contains("error") || l.contains("failed") || l.contains("cannot") {
+        return Some(line.trim().to_string());
+    }
+
+    None
+}
+
+fn set_last_notice_if_changed(last_notice: &Arc<Mutex<Option<String>>>, notice: String) {
+    let mut guard = last_notice.lock().unwrap();
+    let changed = guard.as_deref() != Some(notice.as_str());
+    if changed {
+        *guard = Some(notice);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -755,5 +851,23 @@ mod tests {
         let process = N2NProcess::new();
         assert_eq!(process.status(), ConnectionStatus::Disconnected);
         assert!(!process.is_running());
+    }
+
+    #[test]
+    fn test_extract_notice_tap_busy() {
+        let line = "ERROR: tuntap ioctl(TUNSETIFF, IFF_TAP) error: Device or resource busy[-1]";
+        assert_eq!(
+            extract_user_facing_notice(line).as_deref(),
+            Some("error_tap_busy")
+        );
+    }
+
+    #[test]
+    fn test_extract_notice_mac_or_ip_in_use() {
+        let line = "[edge_utils.c:2558] ERROR: authentication error, MAC or IP address already in use or not released yet by supernode";
+        assert_eq!(
+            extract_user_facing_notice(line).as_deref(),
+            Some("error_mac_or_ip_in_use")
+        );
     }
 }

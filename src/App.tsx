@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { N2NConfig, ConnectionStatus, StatusResponse, NetworkInfo, defaultConfig } from './types';
 import LogViewer from './components/LogViewer';
@@ -38,7 +39,15 @@ function App() {
     loadConfig();
     // 定期检查恩兔的工作状态
     const interval = setInterval(checkStatus, 2000);
-    return () => clearInterval(interval);
+    // 主人准备关门时：先把 UI 切到“断开中”，并显示等待提示
+    const unlistenPromise = listen('app-exit-waiting', () => {
+        setStatus('disconnecting');
+        setErrorMessage(null);
+      });
+    return () => {
+      clearInterval(interval);
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
   }, []);
 
   const loadConfig = async () => {
@@ -226,6 +235,15 @@ function App() {
                   {status === 'error' && errorMessage && (
                     <div className="p-3 mt-4 border border-red-200 rounded-lg bg-red-50">
                       <p className="text-sm text-red-700">
+                        {getErrorMessage()}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 连接中提示（edge 可能在持续重试，不一定会退出） */}
+                  {status === 'connecting' && errorMessage && (
+                    <div className="p-3 mt-4 border rounded-lg border-amber-200 bg-amber-50">
+                      <p className="text-sm text-amber-800">
                         {getErrorMessage()}
                       </p>
                     </div>

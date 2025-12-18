@@ -21,7 +21,15 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "quit" => {
-                app.exit(0);
+                // 主人从托盘选择“退出”时，也尽量走一遍“温柔收拾工具”的流程
+                // 交给窗口的 CloseRequested 处理：它会提示主人等待，并在 edge 退出后再关门
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = window.close();
+                } else {
+                    app.exit(0);
+                }
             }
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {

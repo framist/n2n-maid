@@ -72,10 +72,13 @@ const resources = {
       // 错误提示 - 安慰式
       "error_mac_in_use": "这个硬件编号已经有人用了，可能是其他设备还在工作，或者总部还没注销旧记录",
       "error_ip_in_use": "这个地址已经有人占了，要不换一个试试？",
+      "error_mac_or_ip_in_use": "总部说这台设备的硬件编号/地址还没释放呢（可能上次断开太匆忙）。主人可以先等一小会儿让总部清理，或者点“断开”让恩兔发出 SIGINT 再重新连接。",
       "error_tap_create_failed": "恩兔没权限创建设备，需要主人帮忙授权呢",
+      "error_tap_busy": "虚拟网卡被占用了（Device or resource busy）。可能已经有别的 edge 在工作，或者 TAP 名称冲突；请先断开其它连接/重启相关服务，或在设置里换个 TAP 设备名再试。",
       "error_supernode_unreachable": "联系不上总部了，是不是地址写错了，或者网络断了？",
       "error_auth_failed": "门被锁住了，检查一下暗号和密语对不对吧",
       "error_permission_denied": "权限不够呀，Linux 系统需要给工具箱特殊权限才行",
+      "error_edge_exited": "呜呜…恩兔的工具箱突然停工了（edge 意外退出）。请打开“工作汇报”看看最后一条报错线索。",
       
       // 快捷配置
       "quick_config": "当前配置",
@@ -156,10 +159,13 @@ const resources = {
       // Error messages - Comforting style
       "error_mac_in_use": "This hardware ID is already taken, maybe another device is using it or head office hasn't cleared the old record",
       "error_ip_in_use": "This address is occupied, shall we try another one?",
+      "error_mac_or_ip_in_use": "Head office says your MAC/IP is still marked as in-use (maybe the last session wasn't released yet). You can wait a bit, or click “Take a Break” to send SIGINT and try again.",
       "error_tap_create_failed": "N-Too doesn't have permission to create device, Master needs to grant authorization",
+      "error_tap_busy": "The virtual adapter is busy (Device or resource busy). Another edge may still be running, or the TAP name conflicts. Disconnect other sessions or change the TAP device name and retry.",
       "error_supernode_unreachable": "Can't reach head office, is the address wrong or network disconnected?",
       "error_auth_failed": "The door is locked, please check if the code and password are correct",
       "error_permission_denied": "Not enough permission, Linux systems need special capabilities for the toolbox",
+      "error_edge_exited": "Oops… the toolbox stopped unexpectedly (edge exited). Check the “Work Report” for the last error line.",
       
       // Quick config
       "quick_config": "Current Config",

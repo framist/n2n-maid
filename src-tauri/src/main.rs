@@ -12,6 +12,9 @@ mod windows_ready;
 use config::{ConfigManager, N2NConfig};
 use n2n_process::{ConnectionStatus, N2NProcess};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use tauri::Emitter;
 use tauri::Manager;
 use tauri::State;
 use tokio::sync::mpsc;
@@ -48,26 +51,32 @@ async fn connect(config: N2NConfig, state: State<'_, AppState>, app: tauri::AppH
     let process = state.process.lock().unwrap();
     
     // 先保存配置
-    let mut config = config;
-
-    // Windows 打包模式下：优先使用资源目录里的 edge.exe（避免工作目录变化导致找不到 bin/edge.exe）
-    #[cfg(target_os = "windows")]
-    {
-        if config.edge_path.is_none() {
-            if let Ok(p) = app.path().resolve("edge.exe", BaseDirectory::Resource) {
-                if p.exists() {
-                    config.edge_path = Some(p.to_string_lossy().to_string());
-                }
-            }
+    let config = {
+        // Windows 打包模式下：优先使用资源目录里的 edge.exe（避免工作目录变化导致找不到 bin/edge.exe）
+        #[cfg(target_os = "windows")]
+        {
+            let mut config = config;
             if config.edge_path.is_none() {
-                if let Ok(p) = app.path().resolve("bin/edge.exe", BaseDirectory::Resource) {
+                if let Ok(p) = app.path().resolve("edge.exe", BaseDirectory::Resource) {
                     if p.exists() {
                         config.edge_path = Some(p.to_string_lossy().to_string());
                     }
                 }
+                if config.edge_path.is_none() {
+                    if let Ok(p) = app.path().resolve("bin/edge.exe", BaseDirectory::Resource) {
+                        if p.exists() {
+                            config.edge_path = Some(p.to_string_lossy().to_string());
+                        }
+                    }
+                }
             }
+            config
         }
-    }
+        #[cfg(not(target_os = "windows"))]
+        {
+            config
+        }
+    };
 
     let manager = state.config_manager.lock().unwrap();
     manager.save(&config).map_err(|e| e.to_string())?;
@@ -114,6 +123,7 @@ async fn disconnect_force(state: State<'_, AppState>, app: tauri::AppHandle) -> 
 async fn get_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let process = state.process.lock().unwrap();
     let status = process.status();
+    let notice = process.last_notice();
     
     let result = match status {
         ConnectionStatus::Disconnected => serde_json::json!({
@@ -123,7 +133,7 @@ async fn get_status(state: State<'_, AppState>) -> Result<serde_json::Value, Str
         }),
         ConnectionStatus::Connecting => serde_json::json!({
             "status": "connecting",
-            "error": null,
+            "error": notice,
             "networkInfo": null
         }),
         ConnectionStatus::Disconnecting => serde_json::json!({
@@ -190,6 +200,55 @@ fn main() {
             
             log::info!("恩兔酱准备就绪，随时为主人服务！");
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+                return;
+            };
+
+            let app = window.app_handle();
+            let state = app.state::<AppState>();
+            let process = Arc::clone(&state.process);
+
+            // 只有 edge 在工作时才拦截关闭：给主人展示“正在收拾工具”的提示
+            if !process.lock().unwrap().is_running() {
+                return;
+            }
+
+            api.prevent_close();
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = window.emit("app-exit-waiting", ());
+
+            {
+                let proc = process.lock().unwrap();
+                proc.log_info("主人要关门啦，恩兔先把 edge 温柔地收拾好（正在等待退出）…");
+                if let Err(e) = proc.stop() {
+                    proc.log_info(format!("优雅断开失败：{}（将尝试强制停止）", e));
+                    let _ = proc.stop_force();
+                }
+            }
+
+            let app = app.clone();
+            thread::spawn(move || {
+                // 给 edge 一点时间收尾；如果它不肯走，stop() 内部也会让“强制停止”按钮可用
+                // 这里仅做退出等待，避免主人点击关闭后程序直接消失、留下残影进程
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                loop {
+                    let running = process.lock().unwrap().is_running();
+                    if !running {
+                        break;
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        let proc = process.lock().unwrap();
+                        proc.log_info("等得有点久了…恩兔要改用强制停止来清理残影进程了。");
+                        let _ = proc.stop_force();
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(200));
+                }
+                app.exit(0);
+            });
         })
         .manage(AppState {
             process: Arc::new(Mutex::new(process)),

@@ -2,7 +2,7 @@
 <div align="center">
   <img src="src-tauri/icons/icon-source.png" alt="N2N Maid Icon" width="128" height="128"/>
   <h1>N2N 女仆 · 恩兔酱 | N2N Maid · N-Too</h1>
-  <p>一个开源、简易、可爱的 N2N 图形界面客户端</p>
+  <p>一个开源跨平台并且可爱的 N2N 图形界面客户端</p>
   <p><i>🧹主人，您的专属网络通道已打扫完毕！✨</i></p>
 </div>
 
@@ -13,30 +13,23 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="License"></a>
 </p>
 
-恩兔酱是一个可爱又实用的 N2N VPN 图形界面客户端，基于 Rust 和 Tauri 2 构建。
+恩兔酱是一个可爱又实用的 [N2N](https://github.com/ntop/n2n) VPN 图形界面客户端，基于 Rust 和 Tauri 2 构建。
 让复杂的网络配置变得简单有趣，就像有位贴心的女仆帮您打理一切~
 
 
 ## ✨ 恩兔酱的特长
 
-- 🧹 **简单易用** - 像家政预约一样直观，只需填写"哪里"、"暗号"、"我的工号"三个栏位
-- 🎀 **轻盈灵活** - 使用 Tauri 框架，安装包不到 10MB，不占主人的空间
+- 🎀 **轻盈灵活** - 使用 Tauri 框架，可执行文件不到 10MB，不占主人的空间
 - 🌍 **跨平台待命** - Windows 和 Linux 都能为主人服务
-- 🪟 **后台守候** - 系统托盘里静静待命，随时听候差遣
-- 📜 **工作日志** - 类似稿纸的可爱日志查看器，恩兔会详细汇报工作情况
-- 🌐 **通道详情** - 连接成功后自动显示通道的地址、掩码和编号
 - 💾 **记忆力超好** - 主人的设置会自动保存，下次不用重新配置
-- 🗣️ **双语服务** - 支持中文和英文，适应不同主人的需求
-- 🎨 **外观可调** - 支持明亮、昏暗和跟随系统三种模式
-- 🔧 **专业设置** - 为高级主人准备的工具箱路径、设备名称、通道宽度等选项
+- 🗣️ **Let's speak English!** - Support English, adapt to the needs of different masters
 
 ## 技术栈
 
 - **后端**: Rust + Tauri 2.x
 - **前端**: React 18 + TypeScript + TailwindCSS
 - **构建工具**: Vite
-- **N2N 集成**: 进程调用方式（松耦合）
-
+- **N2N 集成**: 进程调用方式
 ## 开发环境设置
 
 ### 前置要求
@@ -131,7 +124,6 @@ tauri icon src-tauri/icons/icon-source.png
 
 - Windows: `%APPDATA%/n2n-maid/config.toml`
 - Linux: `~/.config/n2n-maid/config.toml`
-- macOS: `~/Library/Application Support/n2n-maid/config.toml`
 
 ## 使用说明
 
@@ -146,24 +138,7 @@ tauri icon src-tauri/icons/icon-source.png
    - 🔐 保密密语（可选，但恩兔建议设置哦）
 4. 选择地址分配方式（自动分配或手动指定）
 5. 点击「确认」，恩兔会记住主人的指示
-6. 返回主界面，点击「🧹 开始打扫」按钮
-
-### 专业设置
-
-在服务准备界面展开「🔧 专业设置」可以配置：
-
-- **工具箱路径**: 告诉恩兔她的工具箱放在哪里
-- **设备名称**: 给虚拟网卡起个名字
-- **通道宽度**: 设置最大传输单元（默认 1290，恩兔建议不要随意改动）
-- **特殊指令**: 给恩兔的魔法掸子添加特殊技能
-
-### 工作日志
-
-底部会显示恩兔的工作日志，实时汇报 N2N edge 进程的运行情况。可以点击标题栏收起或展开。日志支持彩色显示，方便主人查看。
-
-### 外观切换
-
-点击顶部外观图标（☀️/🌙/💻）可以在明亮、昏暗和跟随系统三种模式间切换。
+6. 返回主界面，开始！
 
 ### 系统托盘
 
@@ -205,13 +180,6 @@ sudo setcap cap_net_admin+ep ./bin/edge
 - 确认 `bin/` 目录下有正确的 edge 文件
 - 或在「高级设置」中指定完整路径
 
-### Linux 权限错误
-
-```
-ERROR: unable to open tap device
-```
-
-需要以 root 权限运行，或设置 CAP_NET_ADMIN。
 
 ## 开发路线图
 
@@ -244,4 +212,3 @@ MIT License
 ## 相关链接
 
 - [N2N 官方仓库](https://github.com/ntop/n2n)
-- [Tauri 官方文档](https://tauri.app/)
