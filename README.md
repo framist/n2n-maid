@@ -14,7 +14,7 @@
 </p>
 
 恩兔酱是一个可爱又实用的 [N2N](https://github.com/ntop/n2n) VPN 图形界面客户端，基于 Rust 和 Tauri 2 构建。
-让复杂的网络配置变得简单有趣，就像有位贴心的女仆帮您打理一切~
+让复杂的网络配置变得简单有趣，就像有位贴心的女仆帮您打理一切～ 详细介绍[在这里](./intro.md)呢！
 
 
 ## ✨ 恩兔酱的特长
@@ -23,6 +23,8 @@
 - 🌍 **跨平台待命** - Windows 和 Linux 都能为主人服务
 - 💾 **记忆力超好** - 主人的设置会自动保存，下次不用重新配置
 - 🗣️ **Let's speak English!** - Support English, adapt to the needs of different masters
+
+![demo](http://framist-bucket-openread.oss-cn-shanghai.aliyuncs.com/img/2025/12/22/20251222220916.png)
 
 ## 技术栈
 
@@ -63,6 +65,16 @@ npm run tauri build
 
 生成的安装包位于 `src-tauri/target/release/bundle/` 目录。
 
+### CI/CD 发布（不内置 edge）
+
+GitHub Actions 会在推送 tag 时触发构建（仅 Windows + Linux），发布产物文件名带 `_wobin` 后缀，用来标识**不包含** `bin/edge`。
+运行时请在设置里填写 `edge_path`，或提前把 `edge` 放进系统 PATH。
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## 项目结构
 
 ```
@@ -100,7 +112,7 @@ n2n-maid/
 - Windows: `bin/edge.exe`
 - Linux/macOS: `bin/edge`
 
-从 [N2N 官方仓库](https://github.com/ntop/n2n/releases) 下载最新版本。
+从 [N2N binaries](https://github.com/lucktu/n2n) 下载最新版本。或从 [N2N 官方仓库](https://github.com/ntop/n2n/releases) 自行编译。
 
 ### Windows 准备事项（TAP + 管理员权限）
 
@@ -197,6 +209,7 @@ sudo setcap cap_net_admin+ep ./bin/edge
   - [x] UAC 权限（requireAdministrator）
   - [x] 安装包构建（MSI/EXE）
 - [ ] 阶段四：高级功能
+  - [ ] 多实例支持
   - [ ] Supernode 订阅机制
   - [ ] 流量统计图表
   - [x] Peers 信息显示
@@ -205,11 +218,3 @@ sudo setcap cap_net_admin+ep ./bin/edge
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request！
-
-## 许可证
-
-MIT License
-
-## 相关链接
-
-- [N2N 官方仓库](https://github.com/ntop/n2n)

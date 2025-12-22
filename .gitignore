@@ -47,3 +47,6 @@ bin/supernode.exe
 
 # Development documentation (not for release)
 Plan.md
+
+tmp.*
+

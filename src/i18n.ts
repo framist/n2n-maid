@@ -4,7 +4,7 @@ import { initReactI18next } from 'react-i18next';
 const resources = {
   zh: {
     translation: {
-      "app_title": "N2N Maid · 恩兔 妹抖",
+      "app_title": "N2N Maid · 恩兔酱",
       "connect": "建立通道",
       "disconnect": "休息一下",
       "connecting": "正在铺设通道...",
@@ -32,7 +32,7 @@ const resources = {
       "mtu": "通道宽度",
       
       // 状态信息
-      "virtual_ip": "我的地址",
+      "virtual_ip": "虚拟 IP",
       "status": "工作状态",
       
       // 提示信息 - 女仆口吻
@@ -54,9 +54,9 @@ const resources = {
       // 网卡信息
       "network_info": "通道详情",
       "network_info_waiting": "恩兔正在整理通道回执单（网卡信息还没拿到）…",
-      "ip": "地址",
-      "mask": "子网掩码",
-      "mac": "硬件编号",
+      "ip": "IP 地址",
+      "mask": "子网面具",
+      "mac": "MAC 地址",
 
       // 同伴节点
       "peer_list": "同伴列表",
