@@ -50,13 +50,11 @@ use crate::config::N2NConfig;
 /// Management API stop 操作超时（毫秒）
 const MGMT_STOP_TIMEOUT_MS: u64 = 10000;
 /// Management API 查询超时 - socket 读取超时（毫秒）
-const MGMT_QUERY_READ_TIMEOUT_MS: u64 = 200;
+const MGMT_READ_TIMEOUT_MS: u64 = 200;
 /// Management API 查询超时 - 总等待时间（毫秒）
-const MGMT_QUERY_DEADLINE_MS: u64 = 800;
-/// Management API edges 查询超时 - socket 读取超时（毫秒）
-const MGMT_EDGES_READ_TIMEOUT_MS: u64 = 300;
-/// Management API edges 查询超时 - 总等待时间（毫秒）
-const MGMT_EDGES_DEADLINE_MS: u64 = 1500;
+const MGMT_DEADLINE_MS: u64 = 1500;
+/// Management API 的门牌号（恩兔只敲本机 127.0.0.1:5644）
+const MGMT_ADDR: (&str, u16) = ("127.0.0.1", 5644);
 /// 判断心跳是否有效的最大时间间隔（秒）
 const HEARTBEAT_MAX_INTERVAL_SECS: u64 = 15;
 /// 判断心跳断联的最大时间间隔（秒）- 用于提示"总部不可达"
@@ -866,45 +864,13 @@ impl N2NProcess {
             _ => tag.clone(),
         };
         let req = format!("w {options} stop\n");
-
-        let socket = UdpSocket::bind(("127.0.0.1", 0)).context("准备 stop 纸条失败")?;
-        socket
-            .set_read_timeout(Some(Duration::from_millis(200)))
-            .ok();
-        socket
-            .send_to(req.as_bytes(), ("127.0.0.1", 5644))
-            .context("把 stop 纸条递给 edge（Management API）失败")?;
-
-        let mut buf = vec![0u8; 65535];
+        let socket = send_mgmt_request(
+            &req,
+            "准备 stop 纸条失败",
+            "把 stop 纸条递给 edge（Management API）失败",
+        )?;
         let deadline = Instant::now() + Duration::from_millis(MGMT_STOP_TIMEOUT_MS);
-        while Instant::now() < deadline {
-            let (n, _) = match socket.recv_from(&mut buf) {
-                Ok(v) => v,
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
-                    break;
-                }
-                Err(e) => return Err(anyhow::anyhow!("读取 stop 回信失败：{}", e)),
-            };
-
-            let mut s = String::from_utf8_lossy(&buf[..n]).to_string();
-            s = s.trim_matches('\u{0}').trim().to_string();
-            let pkt: MgmtPacket = match serde_json::from_str(&s) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if pkt.tag.as_deref() != Some(tag.as_str()) {
-                continue;
-            }
-            if pkt.kind == "error" {
-                let err = pkt.error.unwrap_or_else(|| "unknown".to_string());
-                return Err(anyhow::anyhow!("Management API stop 失败：{}", err));
-            }
-            if pkt.kind == "end" {
-                break;
-            }
-        }
-
-        Ok(())
+        wait_mgmt_end(&socket, &tag, deadline, "读取 stop 回信失败", "Management API stop 失败")
     }
 
     /// 启动后台“点名 + 测延迟”小工人（仅一次）
@@ -1112,6 +1078,92 @@ fn build_mgmt_request(method: &str, password: Option<&str>) -> (String, String) 
     (tag, format!("r {options} {method}\n"))
 }
 
+fn send_mgmt_request(req: &str, prepare_hint: &'static str, send_hint: &'static str) -> Result<UdpSocket> {
+    let socket = UdpSocket::bind(("127.0.0.1", 0)).context(prepare_hint)?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(MGMT_READ_TIMEOUT_MS)))
+        .ok();
+    socket.send_to(req.as_bytes(), MGMT_ADDR).context(send_hint)?;
+    Ok(socket)
+}
+
+fn parse_mgmt_packet(buf: &[u8]) -> Option<MgmtPacket> {
+    let mut s = String::from_utf8_lossy(buf).to_string();
+    // edge 回包尾部可能带 \0，让恩兔把它扫掉
+    s = s.trim_matches('\u{0}').trim().to_string();
+    serde_json::from_str(&s).ok()
+}
+
+fn collect_mgmt_rows_json(socket: &UdpSocket, tag: &str, deadline: Instant) -> Result<Vec<serde_json::Value>> {
+    let mut buf = vec![0u8; 65535];
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+
+    while Instant::now() < deadline {
+        let (n, _) = match socket.recv_from(&mut buf) {
+            Ok(v) => v,
+            Err(e) if should_stop_mgmt_read(&e) => break,
+            Err(e) => return Err(anyhow::anyhow!("读取 Management API 回信失败：{}", e)),
+        };
+
+        let pkt = match parse_mgmt_packet(&buf[..n]) {
+            Some(v) => v,
+            None => continue,
+        };
+
+        if pkt.tag.as_deref() != Some(tag) {
+            continue;
+        }
+
+        match pkt.kind.as_str() {
+            "error" => {
+                let err = pkt.error.unwrap_or_else(|| "unknown".to_string());
+                return Err(anyhow::anyhow!("Management API 返回错误：{}", err));
+            }
+            "row" => rows.push(serde_json::Value::Object(pkt.extra)),
+            "end" => break,
+            _ => {}
+        }
+    }
+
+    Ok(rows)
+}
+
+fn wait_mgmt_end(
+    socket: &UdpSocket,
+    tag: &str,
+    deadline: Instant,
+    read_error_hint: &str,
+    error_prefix: &str,
+) -> Result<()> {
+    let mut buf = vec![0u8; 65535];
+    while Instant::now() < deadline {
+        let (n, _) = match socket.recv_from(&mut buf) {
+            Ok(v) => v,
+            Err(e) if should_stop_mgmt_read(&e) => break,
+            Err(e) => return Err(anyhow::anyhow!("{}：{}", read_error_hint, e)),
+        };
+
+        let pkt = match parse_mgmt_packet(&buf[..n]) {
+            Some(v) => v,
+            None => continue,
+        };
+
+        if pkt.tag.as_deref() != Some(tag) {
+            continue;
+        }
+
+        if pkt.kind == "error" {
+            let err = pkt.error.unwrap_or_else(|| "unknown".to_string());
+            return Err(anyhow::anyhow!("{}：{}", error_prefix, err));
+        }
+        if pkt.kind == "end" {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
 fn query_mgmt_state_snapshot(password: Option<&str>) -> Result<MgmtState> {
     let timestamps = query_mgmt_single_row::<MgmtTimestampsRow>("timestamps", password)?;
 
@@ -1156,51 +1208,16 @@ fn query_mgmt_rows_json(method: &str, password: Option<&str>) -> Result<Vec<serd
     }
 }
 
+/// 通过 Management API 查询多行结果（JSON 格式）
 fn query_mgmt_rows_json_once(method: &str, password: Option<&str>) -> Result<Vec<serde_json::Value>> {
     let (tag, req) = build_mgmt_request(method, password);
-    let socket = UdpSocket::bind(("127.0.0.1", 0)).context("准备 Management API 询问纸条失败")?;
-    socket
-        .set_read_timeout(Some(Duration::from_millis(MGMT_QUERY_READ_TIMEOUT_MS)))
-        .ok();
-    socket
-        .send_to(req.as_bytes(), ("127.0.0.1", 5644))
-        .context("把询问纸条递给 edge（Management API）失败")?;
-
-    let mut buf = vec![0u8; 65535];
-    let deadline = Instant::now() + Duration::from_millis(MGMT_QUERY_DEADLINE_MS);
-
-    let mut rows: Vec<serde_json::Value> = Vec::new();
-
-    while Instant::now() < deadline {
-        let (n, _) = match socket.recv_from(&mut buf) {
-            Ok(v) => v,
-            Err(e) if should_stop_mgmt_read(&e) => break,
-            Err(e) => return Err(anyhow::anyhow!("读取 Management API 回信失败：{}", e)),
-        };
-
-        let mut s = String::from_utf8_lossy(&buf[..n]).to_string();
-        s = s.trim_matches('\u{0}').trim().to_string();
-        let pkt: MgmtPacket = match serde_json::from_str(&s) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        if pkt.tag.as_deref() != Some(tag.as_str()) {
-            continue;
-        }
-
-        match pkt.kind.as_str() {
-            "error" => {
-                let err = pkt.error.unwrap_or_else(|| "unknown".to_string());
-                return Err(anyhow::anyhow!("Management API 返回错误：{}", err));
-            }
-            "row" => rows.push(serde_json::Value::Object(pkt.extra)),
-            "end" => break,
-            _ => {}
-        }
-    }
-
-    Ok(rows)
+    let deadline = Instant::now() + Duration::from_millis(MGMT_DEADLINE_MS);
+    let socket = send_mgmt_request(
+        &req,
+        "准备 Management API 询问纸条失败",
+        "把询问纸条递给 edge（Management API）失败",
+    )?;
+    collect_mgmt_rows_json(&socket, &tag, deadline)
 }
 
 fn query_edges_from_management_api(password: Option<&str>) -> Result<Vec<PeerNodeInfo>> {
@@ -1216,52 +1233,16 @@ fn query_edges_from_management_api(password: Option<&str>) -> Result<Vec<PeerNod
     }
 }
 
+/// 通过 Management API 查询同伴列表（edges）
 fn query_edges_from_management_api_once(password: Option<&str>) -> Result<Vec<PeerNodeInfo>> {
     let (tag, req) = build_mgmt_request("edges", password);
-    let socket = UdpSocket::bind(("127.0.0.1", 0)).context("准备 Management API 询问纸条失败")?;
-    socket
-        .set_read_timeout(Some(Duration::from_millis(MGMT_EDGES_READ_TIMEOUT_MS)))
-        .ok();
-    socket
-        .send_to(req.as_bytes(), ("127.0.0.1", 5644))
-        .context("把询问纸条递给 edge（Management API）失败")?;
-
-    let mut buf = vec![0u8; 65535];
-    let deadline = Instant::now() + Duration::from_millis(MGMT_EDGES_DEADLINE_MS);
-
-    let mut rows: Vec<serde_json::Value> = Vec::new();
-
-    while Instant::now() < deadline {
-        let (n, _) = match socket.recv_from(&mut buf) {
-            Ok(v) => v,
-            Err(e) if should_stop_mgmt_read(&e) => break,
-            Err(e) => return Err(anyhow::anyhow!("读取 Management API 回信失败：{}", e)),
-        };
-
-        let mut s = String::from_utf8_lossy(&buf[..n]).to_string();
-        // edge 回包尾部可能带 \0，让恩兔把它扫掉
-        s = s.trim_matches('\u{0}').trim().to_string();
-
-        let pkt: MgmtPacket = match serde_json::from_str(&s) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        if pkt.tag.as_deref() != Some(tag.as_str()) {
-            continue;
-        }
-
-        match pkt.kind.as_str() {
-            "error" => {
-                let err = pkt.error.unwrap_or_else(|| "unknown".to_string());
-                return Err(anyhow::anyhow!("Management API 返回错误：{}", err));
-            }
-            "begin" => {}
-            "row" => rows.push(serde_json::Value::Object(pkt.extra)),
-            "end" => break,
-            _ => {}
-        }
-    }
+    let deadline = Instant::now() + Duration::from_millis(MGMT_DEADLINE_MS);
+    let socket = send_mgmt_request(
+        &req,
+        "准备 Management API 询问纸条失败",
+        "把询问纸条递给 edge（Management API）失败",
+    )?;
+    let rows = collect_mgmt_rows_json(&socket, &tag, deadline)?;
 
     let mut peers = Vec::new();
     for row in rows {
