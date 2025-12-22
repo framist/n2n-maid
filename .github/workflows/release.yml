@@ -73,7 +73,13 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "N2N Maid ${{ github.ref_name }}"
-          releaseBody: "See the assets to download and install this version."
+          releaseBody: |
+            ## 下载说明
+            命名规则：`[name]_[version]_[platform]_[arch]_[bundle]_lite[ext]`
+            - Windows：优先下载 `*_nsis_lite.exe`（安装包），也可用 `*_msi_lite.msi`
+            - Linux：推荐 `*_appimage_lite.AppImage`；Debian/Ubuntu 可用 `*_deb_lite.deb`；RPM 系发行版用 `*_rpm_lite.rpm`
+
+            备注：lite 版本不包含 `bin/edge`，请在设置中填写 `edge_path` 或将 `edge` 放入 PATH。
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: false
