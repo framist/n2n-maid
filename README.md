@@ -67,7 +67,7 @@ npm run tauri build
 
 ### CI/CD 发布（不内置 edge）
 
-GitHub Actions 会在推送 tag 时触发构建（仅 Windows + Linux），发布产物文件名带 `_wobin` 后缀，用来标识**不包含** `bin/edge`。
+GitHub Actions 会在推送 tag 时触发构建（仅 Windows + Linux），发布产物文件名为 `"[name]_[version]_[platform]_[arch]_[bundle]_lite[ext]"`，lite 用来标识**不包含** `bin/edge`。
 运行时请在设置里填写 `edge_path`，或提前把 `edge` 放进系统 PATH。
 
 ```bash
