@@ -1474,7 +1474,7 @@ impl Drop for N2NProcess {
         {
             let mut child_guard = self.child.lock().unwrap();
             if let Some(child) = child_guard.as_mut() {
-                if let Ok(true) = wait_child_exit(child, Duration::from_secs(5)) {
+                if let Ok(true) = wait_child_exit(child, Duration::from_millis(MGMT_STOP_TIMEOUT_MS)) {
                     *child_guard = None;
                     need_force = false;
                 }
